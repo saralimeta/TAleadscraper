@@ -50,6 +50,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [addingCity, setAddingCity] = useState(false);
   const [addingTrade, setAddingTrade] = useState(false);
   const [addError, setAddError] = useState("");
+  const [freeCounty, setFreeCounty] = useState("");
+  const [freeCity, setFreeCity] = useState("");
+  const [freeTrade, setFreeTrade] = useState("");
+  const [freeSearching, setFreeSearching] = useState(false);
+  const [freeError, setFreeError] = useState("");
   const stopRef = useRef(false);
 
   useEffect(() => {
@@ -157,6 +162,62 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       setAddError(err.message);
     } finally {
       setAddingTrade(false);
+    }
+  };
+
+  const runFreeformSearch = async () => {
+    const trade = freeTrade.trim();
+    const city = freeCity.trim();
+    const county = freeCounty.trim();
+
+    if (!trade || !city) {
+      setFreeError("Trade and city are required — county is optional.");
+      return;
+    }
+
+    setFreeError("");
+    setFreeSearching(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ trade, city, county }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+
+      const businesses = Array.isArray(data.businesses) ? data.businesses : [];
+
+      setLeads(prev => {
+        const seen = new Set(prev.map(l => `${l.name}-${l.city}`));
+        const additions = [];
+        for (const b of businesses) {
+          if (!b.name || seen.has(`${b.name}-${b.city}`)) continue;
+          seen.add(`${b.name}-${b.city}`);
+          additions.push({
+            trade,
+            name: b.name || "",
+            address: b.address || "",
+            city: b.city || city,
+            phone: b.phone || null,
+            rating: parseFloat(b.rating) || 0,
+            reviews: parseInt(b.reviews) || 0,
+            website: b.website || null,
+            hours: Array.isArray(b.hours) ? b.hours : [],
+          });
+        }
+        return [...prev, ...additions];
+      });
+
+      setScraped(true);
+      setFreeCounty("");
+      setFreeCity("");
+      setFreeTrade("");
+    } catch (err) {
+      setFreeError(err.message);
+    } finally {
+      setFreeSearching(false);
     }
   };
 
@@ -502,6 +563,54 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             </button>
           )}
         </div>
+      </div>
+
+      {/* Freeform Search */}
+      <div style={{ background: WHITE, borderRadius: 12, border: "1px solid #E2E8F0", padding: "20px 24px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>
+          Freeform Search
+        </label>
+        <div style={{ fontSize: 12, color: SLATE, marginBottom: 12 }}>
+          Search any county, city, and trade directly — no need to add them to the lists above first. Results get added to your leads just like a regular scrape.
+        </div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <input
+            value={freeCounty}
+            onChange={e => setFreeCounty(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
+            placeholder="County (optional)"
+            style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+          />
+          <input
+            value={freeCity}
+            onChange={e => setFreeCity(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
+            placeholder="City"
+            style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+          />
+          <input
+            value={freeTrade}
+            onChange={e => setFreeTrade(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
+            placeholder="Trade"
+            style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+          />
+          <button
+            onClick={runFreeformSearch}
+            disabled={freeSearching}
+            style={{
+              padding: "9px 22px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: freeSearching ? "not-allowed" : "pointer",
+              background: freeSearching ? "#A0AEC0" : GOLD, color: NAVY, border: "none", whiteSpace: "nowrap",
+            }}
+          >
+            {freeSearching ? "Searching..." : "🔍 Search"}
+          </button>
+        </div>
+        {freeError && (
+          <div style={{ padding: "8px 12px", background: "#FFF5F5", borderRadius: 8, fontSize: 12, color: "#C53030", border: "1px solid #FEB2B2" }}>
+            {freeError}
+          </div>
+        )}
       </div>
 
       {/* Progress Bar */}
