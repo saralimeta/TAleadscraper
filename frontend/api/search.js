@@ -39,15 +39,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "SERPER_API_KEY is not configured on the server" });
   }
 
-  const { trade, city } = req.body || {};
+  const { trade, city, county } = req.body || {};
   const tradeTrimmed = (trade || "").trim();
   const cityTrimmed = (city || "").trim();
+  const countyTrimmed = (county || "").trim();
 
   if (!tradeTrimmed || !cityTrimmed) {
     return res.status(400).json({ error: "Both 'trade' and 'city' are required" });
   }
 
-  const query = `${tradeTrimmed} ${cityTrimmed} CA`;
+  const query = countyTrimmed
+    ? `${tradeTrimmed} ${cityTrimmed} ${countyTrimmed} CA`
+    : `${tradeTrimmed} ${cityTrimmed} CA`;
 
   let data;
   try {
@@ -72,6 +75,7 @@ export default async function handler(req, res) {
     .filter((place) => place.title)
     .map((place) => toLead(place, tradeTrimmed, cityTrimmed));
 
+  let supabaseError = null;
   if (businesses.length > 0) {
     const { error } = await supabase
       .from("leads")
@@ -79,8 +83,9 @@ export default async function handler(req, res) {
     if (error) {
       // Don't fail the request over a persistence error — the scrape itself succeeded.
       console.error("Supabase upsert failed:", error.message);
+      supabaseError = error.message;
     }
   }
 
-  return res.status(200).json({ businesses });
+  return res.status(200).json({ businesses, supabaseError });
 }

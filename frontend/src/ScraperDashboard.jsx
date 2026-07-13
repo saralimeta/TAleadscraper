@@ -134,7 +134,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const queries = [];
     for (const trade of selectedTrades) {
       for (const city of selectedCities) {
-        queries.push({ trade, city });
+        queries.push({ trade, city, county });
       }
     }
 
@@ -143,7 +143,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const seen = new Set();
     const allLeads = [];
 
-    for (const { trade, city } of queries) {
+    for (const { trade, city, county: queryCounty } of queries) {
       if (stopRef.current) break;
       setProgress(p => ({ ...p, current: `${trade} in ${city}...` }));
 
@@ -151,7 +151,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         const response = await fetch(`${API_BASE_URL}/api/search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trade, city }),
+          body: JSON.stringify({ trade, city, county: queryCounty }),
         });
 
         if (!response.ok) {
