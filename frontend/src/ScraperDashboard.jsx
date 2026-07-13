@@ -43,13 +43,10 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState("reviews");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [newCountyName, setNewCountyName] = useState("");
-  const [newCityName, setNewCityName] = useState("");
-  const [newTradeName, setNewTradeName] = useState("");
-  const [addingCounty, setAddingCounty] = useState(false);
-  const [addingCity, setAddingCity] = useState(false);
-  const [addingTrade, setAddingTrade] = useState(false);
-  const [addError, setAddError] = useState("");
+  const [modalType, setModalType] = useState(null); // null | "county" | "city" | "trade"
+  const [modalValue, setModalValue] = useState("");
+  const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [modalError, setModalError] = useState("");
   const [freeCounty, setFreeCounty] = useState("");
   const [freeCity, setFreeCity] = useState("");
   const [freeTrade, setFreeTrade] = useState("");
@@ -93,75 +90,65 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const selectAllTrades = () => setSelectedTrades(trades.map(t => t.name));
   const clearTrades = () => setSelectedTrades([]);
 
-  const addCounty = async () => {
-    const name = newCountyName.trim();
-    if (!name) return;
-    setAddingCounty(true);
-    setAddError("");
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/counties`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to add county");
-      setCounties(prev => [...prev, data.county].sort((a, b) => a.name.localeCompare(b.name)));
-      setSelectedCountyId(data.county.id);
-      setSelectedCities([]);
-      setNewCountyName("");
-    } catch (err) {
-      setAddError(err.message);
-    } finally {
-      setAddingCounty(false);
-    }
+  const openModal = (type) => {
+    setModalType(type);
+    setModalValue("");
+    setModalError("");
   };
 
-  const addCity = async () => {
-    const name = newCityName.trim();
-    if (!name || !selectedCountyId) return;
-    setAddingCity(true);
-    setAddError("");
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/cities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, countyId: selectedCountyId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to add city");
-      setCounties(prev => prev.map(c =>
-        c.id === selectedCountyId
-          ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
-          : c
-      ));
-      setNewCityName("");
-    } catch (err) {
-      setAddError(err.message);
-    } finally {
-      setAddingCity(false);
-    }
+  const closeModal = () => {
+    setModalType(null);
+    setModalValue("");
+    setModalError("");
   };
 
-  const addTrade = async () => {
-    const name = newTradeName.trim();
+  const submitModal = async () => {
+    const name = modalValue.trim();
     if (!name) return;
-    setAddingTrade(true);
-    setAddError("");
+    setModalSubmitting(true);
+    setModalError("");
+
     try {
-      const res = await fetch(`${API_BASE_URL}/api/trades`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to add trade");
-      setTrades(prev => [...prev, data.trade].sort((a, b) => a.name.localeCompare(b.name)));
-      setNewTradeName("");
+      if (modalType === "county") {
+        const res = await fetch(`${API_BASE_URL}/api/counties`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to add county");
+        setCounties(prev => [...prev, data.county].sort((a, b) => a.name.localeCompare(b.name)));
+        setSelectedCountyId(data.county.id);
+        setSelectedCities([]);
+      } else if (modalType === "city") {
+        if (!selectedCountyId) throw new Error("Select a county first");
+        const res = await fetch(`${API_BASE_URL}/api/cities`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, countyId: selectedCountyId }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to add city");
+        setCounties(prev => prev.map(c =>
+          c.id === selectedCountyId
+            ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
+            : c
+        ));
+      } else if (modalType === "trade") {
+        const res = await fetch(`${API_BASE_URL}/api/trades`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to add trade");
+        setTrades(prev => [...prev, data.trade].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+      closeModal();
     } catch (err) {
-      setAddError(err.message);
+      setModalError(err.message);
     } finally {
-      setAddingTrade(false);
+      setModalSubmitting(false);
     }
   };
 
@@ -336,38 +323,19 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       {/* Config Panel */}
       <div style={{ background: WHITE, borderRadius: 12, border: `1px solid #E2E8F0`, padding: "24px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
 
-        {addError && (
-          <div style={{ padding: "10px 14px", background: "#FFF5F5", borderRadius: 8, fontSize: 13, color: "#C53030", marginBottom: 16, border: "1px solid #FEB2B2" }}>
-            {addError}
-          </div>
-        )}
-
         {/* County */}
         <div style={{ marginBottom: 20 }}>
-          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>County</label>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County</label>
+            <button onClick={() => openModal("county")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Add County</button>
+          </div>
           <select
             value={selectedCountyId ?? ""}
             onChange={e => { setSelectedCountyId(Number(e.target.value)); setSelectedCities([]); }}
-            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer", marginBottom: 8 }}
+            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
           >
             {counties.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={newCountyName}
-              onChange={e => setNewCountyName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addCounty()}
-              placeholder="Add a new county..."
-              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
-            />
-            <button
-              onClick={addCounty}
-              disabled={addingCounty || !newCountyName.trim()}
-              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingCounty ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
-            >
-              {addingCounty ? "Adding..." : "+ Add"}
-            </button>
-          </div>
         </div>
 
         {/* Cities */}
@@ -376,13 +344,15 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>
               Cities in {countyName || "—"} <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
             </label>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={selectAllCities} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>All</button>
               <span style={{ color: "#CBD5E0" }}>|</span>
               <button onClick={clearCities} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>Clear</button>
+              <span style={{ color: "#CBD5E0" }}>|</span>
+              <button onClick={() => openModal("city")} disabled={!selectedCountyId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedCountyId ? "pointer" : "not-allowed", fontWeight: 600, padding: "2px 0" }}>+ Add City</button>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {cities.map(city => (
               <button
                 key={city.id}
@@ -398,23 +368,6 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               </button>
             ))}
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={newCityName}
-              onChange={e => setNewCityName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addCity()}
-              placeholder={`Add a city to ${countyName || "this county"}...`}
-              disabled={!selectedCountyId}
-              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
-            />
-            <button
-              onClick={addCity}
-              disabled={addingCity || !newCityName.trim() || !selectedCountyId}
-              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingCity ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
-            >
-              {addingCity ? "Adding..." : "+ Add"}
-            </button>
-          </div>
         </div>
 
         {/* Trades */}
@@ -423,13 +376,15 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>
               Trades <span style={{ color: GOLD }}>({selectedTrades.length} selected)</span>
             </label>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={selectAllTrades} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>All</button>
               <span style={{ color: "#CBD5E0" }}>|</span>
               <button onClick={clearTrades} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Clear</button>
+              <span style={{ color: "#CBD5E0" }}>|</span>
+              <button onClick={() => openModal("trade")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Add Trade</button>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {trades.map(trade => (
               <button
                 key={trade.id}
@@ -444,22 +399,6 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
                 {trade.name}
               </button>
             ))}
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              value={newTradeName}
-              onChange={e => setNewTradeName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && addTrade()}
-              placeholder="Add a new trade (available for all counties)..."
-              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
-            />
-            <button
-              onClick={addTrade}
-              disabled={addingTrade || !newTradeName.trim()}
-              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingTrade ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
-            >
-              {addingTrade ? "Adding..." : "+ Add"}
-            </button>
           </div>
         </div>
 
@@ -703,6 +642,56 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Ready to scrape</div>
           <div style={{ fontSize: 13 }}>Select a county, pick your cities and trades, then hit Run Scrape.</div>
+        </div>
+      )}
+
+      {/* Add County/City/Trade modal */}
+      {modalType && (
+        <div
+          onClick={closeModal}
+          style={{ position: "fixed", inset: 0, background: "rgba(21,35,58,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: WHITE, borderRadius: 12, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 10px 40px rgba(0,0,0,0.25)" }}
+          >
+            <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
+              {modalType === "county" && "Add County"}
+              {modalType === "city" && `Add City to ${countyName}`}
+              {modalType === "trade" && "Add Trade"}
+            </div>
+            <div style={{ fontSize: 12, color: SLATE, marginBottom: 14 }}>
+              {modalType === "trade" ? "Available for every county." : "Visible to everyone using the app."}
+            </div>
+            <input
+              autoFocus
+              value={modalValue}
+              onChange={e => setModalValue(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && submitModal()}
+              placeholder={modalType === "county" ? "e.g. Ventura County" : modalType === "city" ? "e.g. Ventura" : "e.g. Landscaper"}
+              style={{ width: "100%", padding: "10px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 14, marginBottom: 10, boxSizing: "border-box" }}
+            />
+            {modalError && (
+              <div style={{ padding: "8px 10px", background: "#FFF5F5", borderRadius: 8, fontSize: 12, color: "#C53030", border: "1px solid #FEB2B2", marginBottom: 10 }}>
+                {modalError}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={closeModal}
+                style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", background: WHITE, color: SLATE, border: "1.5px solid #CBD5E0" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitModal}
+                disabled={modalSubmitting || !modalValue.trim()}
+                style={{ padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: modalSubmitting ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
+              >
+                {modalSubmitting ? "Adding..." : "Add"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
