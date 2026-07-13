@@ -1,66 +1,7 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { NAVY, GOLD, GOLD_LIGHT, SLATE, WHITE, SUCCESS, SUCCESS_BG, priorityOf } from "./theme.js";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
-
-const TRADES = [
-  "Plumber",
-  "Electrician",
-  "HVAC",
-  "Drywall Contractor",
-  "General Contractor",
-  "Roofer",
-  "Painter",
-  "Landscaper",
-  "Concrete Contractor",
-  "Flooring Contractor",
-  "Tile Contractor",
-  "Fence Contractor",
-  "Handyman",
-  "Pool Contractor",
-  "Solar Installer",
-];
-
-const CA_CITIES = {
-  "Contra Costa County": [
-    "Antioch", "Brentwood", "Clayton", "Concord", "Danville",
-    "El Cerrito", "Hercules", "Lafayette", "Martinez", "Moraga",
-    "Oakley", "Orinda", "Pinole", "Pittsburg", "Pleasant Hill",
-    "Richmond", "San Pablo", "San Ramon", "Walnut Creek"
-  ],
-  "Alameda County": [
-    "Alameda", "Albany", "Berkeley", "Castro Valley", "Dublin",
-    "Emeryville", "Fremont", "Hayward", "Livermore", "Newark",
-    "Oakland", "Pleasanton", "San Leandro", "Union City"
-  ],
-  "San Francisco County": ["San Francisco"],
-  "San Mateo County": [
-    "Belmont", "Burlingame", "Daly City", "Foster City", "Menlo Park",
-    "Millbrae", "Pacifica", "Redwood City", "San Bruno", "San Mateo", "South San Francisco"
-  ],
-  "Santa Clara County": [
-    "Campbell", "Cupertino", "Gilroy", "Los Altos", "Milpitas",
-    "Mountain View", "Palo Alto", "San Jose", "Santa Clara", "Saratoga", "Sunnyvale"
-  ],
-  "Marin County": [
-    "Corte Madera", "Fairfax", "Mill Valley", "Novato", "San Rafael", "Tiburon"
-  ],
-  "Sonoma County": [
-    "Cotati", "Healdsburg", "Petaluma", "Rohnert Park", "Santa Rosa", "Sebastopol", "Windsor"
-  ],
-  "Sacramento County": [
-    "Citrus Heights", "Elk Grove", "Folsom", "Rancho Cordova", "Roseville", "Sacramento"
-  ],
-  "Los Angeles County": [
-    "Alhambra", "Burbank", "Compton", "Downey", "El Monte", "Glendale",
-    "Inglewood", "Long Beach", "Los Angeles", "Pasadena", "Pomona",
-    "Santa Monica", "Torrance", "West Covina"
-  ],
-  "Orange County": [
-    "Anaheim", "Costa Mesa", "Fullerton", "Huntington Beach", "Irvine",
-    "Mission Viejo", "Newport Beach", "Orange", "Santa Ana"
-  ],
-};
 
 function downloadCSV(leads) {
   const headers = ["#", "Trade", "Business Name", "Address", "City", "Phone", "Rating", "Reviews", "Priority", "Website", "Hours", "Contacted", "Follow-Up Date", "Notes"];
@@ -89,7 +30,10 @@ function downloadCSV(leads) {
 }
 
 export default function ScraperDashboard({ leads, setLeads, scraped, setScraped }) {
-  const [county, setCounty] = useState("Contra Costa County");
+  const [counties, setCounties] = useState([]);
+  const [trades, setTrades] = useState([]);
+  const [bootLoading, setBootLoading] = useState(true);
+  const [selectedCountyId, setSelectedCountyId] = useState(null);
   const [selectedCities, setSelectedCities] = useState([]);
   const [selectedTrades, setSelectedTrades] = useState([]);
   const [minRating, setMinRating] = useState(0);
@@ -99,9 +43,33 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState("reviews");
   const [filterPriority, setFilterPriority] = useState("all");
+  const [newCountyName, setNewCountyName] = useState("");
+  const [newCityName, setNewCityName] = useState("");
+  const [newTradeName, setNewTradeName] = useState("");
+  const [addingCounty, setAddingCounty] = useState(false);
+  const [addingCity, setAddingCity] = useState(false);
+  const [addingTrade, setAddingTrade] = useState(false);
+  const [addError, setAddError] = useState("");
   const stopRef = useRef(false);
 
-  const cities = CA_CITIES[county] || [];
+  useEffect(() => {
+    Promise.all([
+      fetch(`${API_BASE_URL}/api/counties`).then(r => r.json()),
+      fetch(`${API_BASE_URL}/api/trades`).then(r => r.json()),
+    ])
+      .then(([countiesData, tradesData]) => {
+        const cs = countiesData.counties || [];
+        setCounties(cs);
+        setTrades(tradesData.trades || []);
+        if (cs.length > 0) setSelectedCountyId(cs[0].id);
+      })
+      .catch(err => console.error("Failed to load counties/trades:", err))
+      .finally(() => setBootLoading(false));
+  }, []);
+
+  const selectedCounty = counties.find(c => c.id === selectedCountyId) || null;
+  const cities = selectedCounty ? selectedCounty.cities : [];
+  const countyName = selectedCounty ? selectedCounty.name : "";
 
   const toggleCity = (city) => {
     setSelectedCities(prev =>
@@ -115,10 +83,82 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     );
   };
 
-  const selectAllCities = () => setSelectedCities([...cities]);
+  const selectAllCities = () => setSelectedCities(cities.map(c => c.name));
   const clearCities = () => setSelectedCities([]);
-  const selectAllTrades = () => setSelectedTrades([...TRADES]);
+  const selectAllTrades = () => setSelectedTrades(trades.map(t => t.name));
   const clearTrades = () => setSelectedTrades([]);
+
+  const addCounty = async () => {
+    const name = newCountyName.trim();
+    if (!name) return;
+    setAddingCounty(true);
+    setAddError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/counties`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add county");
+      setCounties(prev => [...prev, data.county].sort((a, b) => a.name.localeCompare(b.name)));
+      setSelectedCountyId(data.county.id);
+      setSelectedCities([]);
+      setNewCountyName("");
+    } catch (err) {
+      setAddError(err.message);
+    } finally {
+      setAddingCounty(false);
+    }
+  };
+
+  const addCity = async () => {
+    const name = newCityName.trim();
+    if (!name || !selectedCountyId) return;
+    setAddingCity(true);
+    setAddError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/cities`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, countyId: selectedCountyId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add city");
+      setCounties(prev => prev.map(c =>
+        c.id === selectedCountyId
+          ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
+          : c
+      ));
+      setNewCityName("");
+    } catch (err) {
+      setAddError(err.message);
+    } finally {
+      setAddingCity(false);
+    }
+  };
+
+  const addTrade = async () => {
+    const name = newTradeName.trim();
+    if (!name) return;
+    setAddingTrade(true);
+    setAddError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/trades`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to add trade");
+      setTrades(prev => [...prev, data.trade].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewTradeName("");
+    } catch (err) {
+      setAddError(err.message);
+    } finally {
+      setAddingTrade(false);
+    }
+  };
 
   const scrape = useCallback(async () => {
     if (!selectedCities.length || !selectedTrades.length) {
@@ -134,7 +174,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const queries = [];
     for (const trade of selectedTrades) {
       for (const city of selectedCities) {
-        queries.push({ trade, city, county });
+        queries.push({ trade, city, county: countyName });
       }
     }
 
@@ -193,7 +233,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(false);
     setScraped(true);
     stopRef.current = false;
-  }, [selectedCities, selectedTrades, setLeads, setScraped]);
+  }, [selectedCities, selectedTrades, countyName, setLeads, setScraped]);
 
   const stopScrape = () => {
     stopRef.current = true;
@@ -222,28 +262,58 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
 
   const progressPct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
+  if (bootLoading) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
+        Loading counties and trades...
+      </div>
+    );
+  }
+
   return (
     <div>
       {/* Config Panel */}
       <div style={{ background: WHITE, borderRadius: 12, border: `1px solid #E2E8F0`, padding: "24px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
 
+        {addError && (
+          <div style={{ padding: "10px 14px", background: "#FFF5F5", borderRadius: 8, fontSize: 13, color: "#C53030", marginBottom: 16, border: "1px solid #FEB2B2" }}>
+            {addError}
+          </div>
+        )}
+
         {/* County */}
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>County</label>
           <select
-            value={county}
-            onChange={e => { setCounty(e.target.value); setSelectedCities([]); }}
-            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
+            value={selectedCountyId ?? ""}
+            onChange={e => { setSelectedCountyId(Number(e.target.value)); setSelectedCities([]); }}
+            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer", marginBottom: 8 }}
           >
-            {Object.keys(CA_CITIES).map(c => <option key={c}>{c}</option>)}
+            {counties.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={newCountyName}
+              onChange={e => setNewCountyName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addCounty()}
+              placeholder="Add a new county..."
+              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+            />
+            <button
+              onClick={addCounty}
+              disabled={addingCounty || !newCountyName.trim()}
+              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingCounty ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
+            >
+              {addingCounty ? "Adding..." : "+ Add"}
+            </button>
+          </div>
         </div>
 
         {/* Cities */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Cities <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
+              Cities in {countyName || "—"} <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
             </label>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={selectAllCities} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>All</button>
@@ -251,21 +321,38 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               <button onClick={clearCities} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>Clear</button>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
             {cities.map(city => (
               <button
-                key={city}
-                onClick={() => toggleCity(city)}
+                key={city.id}
+                onClick={() => toggleCity(city.name)}
                 style={{
                   padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
-                  background: selectedCities.includes(city) ? NAVY : WHITE,
-                  color: selectedCities.includes(city) ? WHITE : SLATE,
-                  border: `1.5px solid ${selectedCities.includes(city) ? NAVY : "#CBD5E0"}`,
+                  background: selectedCities.includes(city.name) ? NAVY : WHITE,
+                  color: selectedCities.includes(city.name) ? WHITE : SLATE,
+                  border: `1.5px solid ${selectedCities.includes(city.name) ? NAVY : "#CBD5E0"}`,
                 }}
               >
-                {city}
+                {city.name}
               </button>
             ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={newCityName}
+              onChange={e => setNewCityName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addCity()}
+              placeholder={`Add a city to ${countyName || "this county"}...`}
+              disabled={!selectedCountyId}
+              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+            />
+            <button
+              onClick={addCity}
+              disabled={addingCity || !newCityName.trim() || !selectedCountyId}
+              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingCity ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
+            >
+              {addingCity ? "Adding..." : "+ Add"}
+            </button>
           </div>
         </div>
 
@@ -281,21 +368,37 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               <button onClick={clearTrades} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Clear</button>
             </div>
           </div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {TRADES.map(trade => (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+            {trades.map(trade => (
               <button
-                key={trade}
-                onClick={() => toggleTrade(trade)}
+                key={trade.id}
+                onClick={() => toggleTrade(trade.name)}
                 style={{
                   padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
-                  background: selectedTrades.includes(trade) ? GOLD : WHITE,
-                  color: selectedTrades.includes(trade) ? NAVY : SLATE,
-                  border: `1.5px solid ${selectedTrades.includes(trade) ? GOLD : "#CBD5E0"}`,
+                  background: selectedTrades.includes(trade.name) ? GOLD : WHITE,
+                  color: selectedTrades.includes(trade.name) ? NAVY : SLATE,
+                  border: `1.5px solid ${selectedTrades.includes(trade.name) ? GOLD : "#CBD5E0"}`,
                 }}
               >
-                {trade}
+                {trade.name}
               </button>
             ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              value={newTradeName}
+              onChange={e => setNewTradeName(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && addTrade()}
+              placeholder="Add a new trade (available for all counties)..."
+              style={{ flex: 1, padding: "8px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+            />
+            <button
+              onClick={addTrade}
+              disabled={addingTrade || !newTradeName.trim()}
+              style={{ padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: addingTrade ? "not-allowed" : "pointer", background: GOLD, color: NAVY, border: "none" }}
+            >
+              {addingTrade ? "Adding..." : "+ Add"}
+            </button>
           </div>
         </div>
 
