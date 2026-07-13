@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NAVY, GOLD, WHITE } from "./theme.js";
 import ScraperDashboard from "./ScraperDashboard.jsx";
 import LeadsList from "./LeadsList.jsx";
@@ -12,6 +12,20 @@ export default function App() {
   const [tab, setTab] = useState("dashboard");
   const [leads, setLeads] = useState([]);
   const [scraped, setScraped] = useState(false);
+
+  // Load previously-scraped leads from Supabase on first load, so the
+  // Leads List tab has data even before a new scrape is run.
+  useEffect(() => {
+    fetch("/api/leads")
+      .then((res) => (res.ok ? res.json() : { leads: [] }))
+      .then((data) => {
+        if (Array.isArray(data.leads) && data.leads.length > 0) {
+          setLeads(data.leads);
+          setScraped(true);
+        }
+      })
+      .catch((err) => console.error("Failed to load saved leads:", err));
+  }, []);
 
   return (
     <div style={{ fontFamily: "'Inter', 'Helvetica Neue', sans-serif", background: "#F7F6F2", minHeight: "100vh", color: NAVY }}>
