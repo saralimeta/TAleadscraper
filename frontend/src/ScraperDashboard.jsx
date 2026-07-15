@@ -4,12 +4,14 @@ import { NAVY, GOLD, GOLD_LIGHT, SLATE, WHITE, SUCCESS, SUCCESS_BG, priorityOf }
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 function downloadCSV(leads) {
-  const headers = ["#", "Trade", "Business Name", "Address", "City", "Phone", "Rating", "Reviews", "Priority", "Website", "Hours", "Contacted", "Follow-Up Date", "Notes"];
+  const headers = ["#", "Trade", "Business Name", "Address", "Country", "County", "City", "Phone", "Rating", "Reviews", "Priority", "Website", "Hours", "Contacted", "Follow-Up Date", "Notes"];
   const rows = leads.map((l, i) => [
     i + 1,
     l.trade,
     `"${l.name.replace(/"/g, '""')}"`,
     `"${l.address.replace(/"/g, '""')}"`,
+    l.country || "",
+    l.county || "",
     l.city,
     l.phone || "",
     l.rating,
@@ -220,6 +222,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             name: b.name || "",
             address: b.address || "",
             city: b.city || city,
+            county: b.county || county || null,
+            country: b.country || country || null,
             phone: b.phone || null,
             rating: parseFloat(b.rating) || 0,
             reviews: parseInt(b.reviews) || 0,
@@ -292,6 +296,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             name: b.name || "",
             address: b.address || "",
             city: b.city || city,
+            county: b.county || queryCounty || null,
+            country: b.country || queryCountry || null,
             phone: b.phone || null,
             rating: parseFloat(b.rating) || 0,
             reviews: parseInt(b.reviews) || 0,

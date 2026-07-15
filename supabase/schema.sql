@@ -22,6 +22,15 @@ create index if not exists leads_created_at_idx on leads (created_at desc);
 -- if it were ever exposed, would get nothing.
 alter table leads enable row level security;
 
+-- Leads originally only recorded trade/city, not which county/country
+-- they were searched under, so Leads List couldn't filter by either.
+alter table leads add column if not exists county text;
+alter table leads add column if not exists country text;
+
+alter table leads drop constraint if exists leads_name_city_trade_key;
+alter table leads drop constraint if exists leads_name_city_country_trade_key;
+alter table leads add constraint leads_name_city_country_trade_key unique (name, city, country, trade);
+
 
 -- Counties, cities, and trades are user-extensible: anyone using the
 -- app can add new ones (via /api/counties, /api/cities, /api/trades),

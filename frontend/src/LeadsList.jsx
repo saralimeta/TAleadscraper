@@ -11,6 +11,8 @@ function websiteLabel(website) {
 }
 
 export default function LeadsList({ leads }) {
+  const [countryF, setCountryF] = useState("All");
+  const [countyF, setCountyF] = useState("All");
   const [tradeF, setTradeF] = useState("All");
   const [cityF, setCityF] = useState("All");
   const [minR, setMinR] = useState(0);
@@ -19,17 +21,21 @@ export default function LeadsList({ leads }) {
   const [sort, setSort] = useState("reviews");
   const [q, setQ] = useState("");
 
+  const COUNTRIES = useMemo(() => [...new Set(leads.map(l => l.country).filter(Boolean))].sort(), [leads]);
+  const COUNTIES = useMemo(() => [...new Set(leads.map(l => l.county).filter(Boolean))].sort(), [leads]);
   const TRADES = useMemo(() => [...new Set(leads.map(l => l.trade))].sort(), [leads]);
   const CITIES = useMemo(() => [...new Set(leads.map(l => l.city))].sort(), [leads]);
 
   const filtered = useMemo(() => leads
+    .filter(l => countryF === "All" || l.country === countryF)
+    .filter(l => countyF === "All" || l.county === countyF)
     .filter(l => tradeF === "All" || l.trade === tradeF)
     .filter(l => cityF === "All" || l.city === cityF)
     .filter(l => l.rating >= minR && l.reviews >= minRev)
     .filter(l => pF === "All" || priorityOf(l.reviews) === pF)
     .filter(l => !q || l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase()) || l.trade.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => sort === "reviews" ? b.reviews - a.reviews : sort === "rating" ? b.rating - a.rating : sort === "name" ? a.name.localeCompare(b.name) : a.trade.localeCompare(b.trade)),
-    [leads, tradeF, cityF, minR, minRev, pF, sort, q]
+    [leads, countryF, countyF, tradeF, cityF, minR, minRev, pF, sort, q]
   );
 
   const tradeCounts = useMemo(() => {
@@ -56,6 +62,66 @@ export default function LeadsList({ leads }) {
           placeholder="Search name, city, or trade..."
           style={{ width: "100%", padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 14, marginBottom: 12, boxSizing: "border-box" }}
         />
+
+        {/* Country chips */}
+        {COUNTRIES.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#4A5568", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                Filter by Country <span style={{ color: GOLD }}>({countryF === "All" ? "ALL" : countryF})</span>
+              </span>
+              {countryF !== "All" && <button onClick={() => setCountryF("All")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>Show All</button>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {COUNTRIES.map(c => {
+                const cnt = leads.filter(l => l.country === c).length;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setCountryF(countryF === c ? "All" : c)}
+                    style={{
+                      padding: "5px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                      background: countryF === c ? GOLD : "#fff", color: countryF === c ? NAVY : "#4A5568",
+                      border: `1.5px solid ${countryF === c ? GOLD : "#CBD5E0"}`
+                    }}
+                  >
+                    {c} <span style={{ opacity: 0.65, fontSize: 10 }}>({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* County chips */}
+        {COUNTIES.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#4A5568", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                Filter by County <span style={{ color: GOLD }}>({countyF === "All" ? "ALL" : countyF})</span>
+              </span>
+              {countyF !== "All" && <button onClick={() => setCountyF("All")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>Show All</button>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {COUNTIES.map(c => {
+                const cnt = leads.filter(l => l.county === c).length;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => setCountyF(countyF === c ? "All" : c)}
+                    style={{
+                      padding: "5px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                      background: countyF === c ? NAVY : "#fff", color: countyF === c ? "#fff" : "#4A5568",
+                      border: `1.5px solid ${countyF === c ? NAVY : "#CBD5E0"}`
+                    }}
+                  >
+                    {c} <span style={{ opacity: 0.65, fontSize: 10 }}>({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Trade chips */}
         <div style={{ marginBottom: 12 }}>
@@ -162,14 +228,14 @@ export default function LeadsList({ leads }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: NAVY }}>
-                {["#", "Trade", "Business Name", "City", "Phone", "Website", "Email", "Rating", "Reviews", "Priority"].map(h => (
+                {["#", "Trade", "Business Name", "Country", "County", "City", "Phone", "Website", "Email", "Rating", "Reviews", "Priority"].map(h => (
                   <th key={h} style={{ padding: "9px 11px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={10} style={{ padding: "28px", textAlign: "center", color: "#A0AEC0" }}>
+                <tr><td colSpan={12} style={{ padding: "28px", textAlign: "center", color: "#A0AEC0" }}>
                   {leads.length === 0 ? "No leads yet — run a scrape on the Scraper Dashboard tab" : "No leads match — adjust filters above"}
                 </td></tr>
               ) : filtered.map((l, i) => {
@@ -180,6 +246,8 @@ export default function LeadsList({ leads }) {
                     <td style={{ padding: "7px 11px", color: "#718096", fontSize: 11 }}>{i + 1}</td>
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.trade}</td>
                     <td style={{ padding: "7px 11px", fontWeight: 600, color: NAVY, minWidth: 180 }}>{l.name}</td>
+                    <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.country || <span style={{ color: "#CBD5E0" }}>—</span>}</td>
+                    <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.county || <span style={{ color: "#CBD5E0" }}>—</span>}</td>
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.city}</td>
                     <td style={{ padding: "7px 11px", whiteSpace: "nowrap" }}>
                       {l.phone ? <a href={`tel:${l.phone}`} style={{ color: GOLD, fontWeight: 600, textDecoration: "none" }}>{l.phone}</a> : <span style={{ color: "#CBD5E0" }}>—</span>}

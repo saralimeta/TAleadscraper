@@ -16,12 +16,14 @@ function formatHours(openingHours) {
   return [];
 }
 
-function toLead(place, trade, fallbackCity) {
+function toLead(place, trade, fallbackCity, county, country) {
   return {
     trade,
     name: place.title || "",
     address: place.address || "",
     city: fallbackCity,
+    county: county || null,
+    country: country || null,
     phone: place.phoneNumber || null,
     rating: place.rating || 0,
     reviews: place.ratingCount || 0,
@@ -74,13 +76,13 @@ export default async function handler(req, res) {
   const places = data.places || [];
   const businesses = places
     .filter((place) => place.title)
-    .map((place) => toLead(place, tradeTrimmed, cityTrimmed));
+    .map((place) => toLead(place, tradeTrimmed, cityTrimmed, countyTrimmed, countryTrimmed));
 
   let supabaseError = null;
   if (businesses.length > 0) {
     const { error } = await supabase
       .from("leads")
-      .upsert(businesses, { onConflict: "name,city,trade" });
+      .upsert(businesses, { onConflict: "name,city,country,trade" });
     if (error) {
       // Don't fail the request over a persistence error — the scrape itself succeeded.
       console.error("Supabase upsert failed:", error.message);
