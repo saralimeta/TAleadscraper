@@ -108,3 +108,31 @@ insert into trades (name) values
   ('Roofer'), ('Painter'), ('Landscaper'), ('Concrete Contractor'), ('Flooring Contractor'),
   ('Tile Contractor'), ('Fence Contractor'), ('Handyman'), ('Pool Contractor'), ('Solar Installer')
 on conflict (name) do nothing;
+
+
+-- Countries: the top level above counties, since the app was originally
+-- California-only (search.js used to hardcode "CA" on every query).
+-- Counties/regions now belong to a country instead of being a flat
+-- global list, so the same county name can exist in different countries.
+
+create table if not exists countries (
+  id bigint generated always as identity primary key,
+  name text not null unique,
+  created_at timestamptz not null default now()
+);
+
+alter table countries enable row level security;
+
+insert into countries (name) values ('United States')
+on conflict (name) do nothing;
+
+alter table counties add column if not exists country_id bigint references countries (id) on delete cascade;
+
+update counties set country_id = (select id from countries where name = 'United States')
+where country_id is null;
+
+alter table counties alter column country_id set not null;
+
+alter table counties drop constraint if exists counties_name_key;
+alter table counties drop constraint if exists counties_name_country_id_key;
+alter table counties add constraint counties_name_country_id_key unique (name, country_id);

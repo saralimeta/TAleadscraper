@@ -39,18 +39,19 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "SERPER_API_KEY is not configured on the server" });
   }
 
-  const { trade, city, county } = req.body || {};
+  const { trade, city, county, country } = req.body || {};
   const tradeTrimmed = (trade || "").trim();
   const cityTrimmed = (city || "").trim();
   const countyTrimmed = (county || "").trim();
+  const countryTrimmed = (country || "").trim();
 
   if (!tradeTrimmed || !cityTrimmed) {
     return res.status(400).json({ error: "Both 'trade' and 'city' are required" });
   }
 
-  const query = countyTrimmed
-    ? `${tradeTrimmed} ${cityTrimmed} ${countyTrimmed} CA`
-    : `${tradeTrimmed} ${cityTrimmed} CA`;
+  const query = [tradeTrimmed, cityTrimmed, countyTrimmed, countryTrimmed]
+    .filter(Boolean)
+    .join(" ");
 
   let data;
   try {

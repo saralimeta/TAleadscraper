@@ -30,9 +30,10 @@ function downloadCSV(leads) {
 }
 
 export default function ScraperDashboard({ leads, setLeads, scraped, setScraped }) {
-  const [counties, setCounties] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [trades, setTrades] = useState([]);
   const [bootLoading, setBootLoading] = useState(true);
+  const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [selectedCountyId, setSelectedCountyId] = useState(null);
   const [selectedCities, setSelectedCities] = useState([]);
   const [selectedTrades, setSelectedTrades] = useState([]);
@@ -43,10 +44,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState("reviews");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [modalType, setModalType] = useState(null); // null | "county" | "city" | "trade"
+  const [modalType, setModalType] = useState(null); // null | "country" | "county" | "city" | "trade"
   const [modalValue, setModalValue] = useState("");
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [modalError, setModalError] = useState("");
+  const [freeCountry, setFreeCountry] = useState("");
   const [freeCounty, setFreeCounty] = useState("");
   const [freeCity, setFreeCity] = useState("");
   const [freeTrade, setFreeTrade] = useState("");
@@ -56,19 +58,25 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API_BASE_URL}/api/counties`).then(r => r.json()),
+      fetch(`${API_BASE_URL}/api/countries`).then(r => r.json()),
       fetch(`${API_BASE_URL}/api/trades`).then(r => r.json()),
     ])
-      .then(([countiesData, tradesData]) => {
-        const cs = countiesData.counties || [];
-        setCounties(cs);
+      .then(([countriesData, tradesData]) => {
+        const cs = countriesData.countries || [];
+        setCountries(cs);
         setTrades(tradesData.trades || []);
-        if (cs.length > 0) setSelectedCountyId(cs[0].id);
+        if (cs.length > 0) {
+          setSelectedCountryId(cs[0].id);
+          if (cs[0].counties.length > 0) setSelectedCountyId(cs[0].counties[0].id);
+        }
       })
-      .catch(err => console.error("Failed to load counties/trades:", err))
+      .catch(err => console.error("Failed to load countries/trades:", err))
       .finally(() => setBootLoading(false));
   }, []);
 
+  const selectedCountry = countries.find(c => c.id === selectedCountryId) || null;
+  const counties = selectedCountry ? selectedCountry.counties : [];
+  const countryName = selectedCountry ? selectedCountry.name : "";
   const selectedCounty = counties.find(c => c.id === selectedCountyId) || null;
   const cities = selectedCounty ? selectedCounty.cities : [];
   const countyName = selectedCounty ? selectedCounty.name : "";
@@ -109,15 +117,32 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setModalError("");
 
     try {
-      if (modalType === "county") {
-        const res = await fetch(`${API_BASE_URL}/api/counties`, {
+      if (modalType === "country") {
+        const res = await fetch(`${API_BASE_URL}/api/countries`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name }),
         });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to add country");
+        setCountries(prev => [...prev, data.country].sort((a, b) => a.name.localeCompare(b.name)));
+        setSelectedCountryId(data.country.id);
+        setSelectedCountyId(null);
+        setSelectedCities([]);
+      } else if (modalType === "county") {
+        if (!selectedCountryId) throw new Error("Select a country first");
+        const res = await fetch(`${API_BASE_URL}/api/counties`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, countryId: selectedCountryId }),
+        });
+        const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to add county");
-        setCounties(prev => [...prev, data.county].sort((a, b) => a.name.localeCompare(b.name)));
+        setCountries(prev => prev.map(country =>
+          country.id === selectedCountryId
+            ? { ...country, counties: [...country.counties, data.county].sort((a, b) => a.name.localeCompare(b.name)) }
+            : country
+        ));
         setSelectedCountyId(data.county.id);
         setSelectedCities([]);
       } else if (modalType === "city") {
@@ -129,10 +154,17 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to add city");
-        setCounties(prev => prev.map(c =>
-          c.id === selectedCountyId
-            ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
-            : c
+        setCountries(prev => prev.map(country =>
+          country.id === selectedCountryId
+            ? {
+                ...country,
+                counties: country.counties.map(c =>
+                  c.id === selectedCountyId
+                    ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
+                    : c
+                ),
+              }
+            : country
         ));
       } else if (modalType === "trade") {
         const res = await fetch(`${API_BASE_URL}/api/trades`, {
@@ -156,9 +188,10 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const trade = freeTrade.trim();
     const city = freeCity.trim();
     const county = freeCounty.trim();
+    const country = freeCountry.trim();
 
     if (!trade || !city) {
-      setFreeError("Trade and city are required — county is optional.");
+      setFreeError("Trade and city are required — county and country are optional.");
       return;
     }
 
@@ -169,7 +202,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trade, city, county }),
+        body: JSON.stringify({ trade, city, county, country }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
@@ -198,6 +231,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       });
 
       setScraped(true);
+      setFreeCountry("");
       setFreeCounty("");
       setFreeCity("");
       setFreeTrade("");
@@ -222,7 +256,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const queries = [];
     for (const trade of selectedTrades) {
       for (const city of selectedCities) {
-        queries.push({ trade, city, county: countyName });
+        queries.push({ trade, city, county: countyName, country: countryName });
       }
     }
 
@@ -231,7 +265,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const seen = new Set();
     const allLeads = [];
 
-    for (const { trade, city, county: queryCounty } of queries) {
+    for (const { trade, city, county: queryCounty, country: queryCountry } of queries) {
       if (stopRef.current) break;
       setProgress(p => ({ ...p, current: `${trade} in ${city}...` }));
 
@@ -239,7 +273,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         const response = await fetch(`${API_BASE_URL}/api/search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trade, city, county: queryCounty }),
+          body: JSON.stringify({ trade, city, county: queryCounty, country: queryCountry }),
         });
 
         if (!response.ok) {
@@ -281,7 +315,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(false);
     setScraped(true);
     stopRef.current = false;
-  }, [selectedCities, selectedTrades, countyName, setLeads, setScraped]);
+  }, [selectedCities, selectedTrades, countyName, countryName, setLeads, setScraped]);
 
   const stopScrape = () => {
     stopRef.current = true;
@@ -313,7 +347,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   if (bootLoading) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
-        Loading counties and trades...
+        Loading countries and trades...
       </div>
     );
   }
@@ -323,11 +357,32 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       {/* Config Panel */}
       <div style={{ background: WHITE, borderRadius: 12, border: `1px solid #E2E8F0`, padding: "24px", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.06)" }}>
 
+        {/* Country */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>Country</label>
+            <button onClick={() => openModal("country")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Add Country</button>
+          </div>
+          <select
+            value={selectedCountryId ?? ""}
+            onChange={e => {
+              const id = Number(e.target.value);
+              setSelectedCountryId(id);
+              const country = countries.find(c => c.id === id);
+              setSelectedCountyId(country && country.counties.length > 0 ? country.counties[0].id : null);
+              setSelectedCities([]);
+            }}
+            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
+          >
+            {countries.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
         {/* County */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County</label>
-            <button onClick={() => openModal("county")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>+ Add County</button>
+            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County in {countryName || "—"}</label>
+            <button onClick={() => openModal("county")} disabled={!selectedCountryId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedCountryId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add County</button>
           </div>
           <select
             value={selectedCountyId ?? ""}
@@ -510,9 +565,16 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           Freeform Search
         </label>
         <div style={{ fontSize: 12, color: SLATE, marginBottom: 12 }}>
-          Search any county, city, and trade directly — no need to add them to the lists above first. Results get added to your leads just like a regular scrape.
+          Search any country, county, city, and trade directly — no need to add them to the lists above first. Results get added to your leads just like a regular scrape.
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+          <input
+            value={freeCountry}
+            onChange={e => setFreeCountry(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
+            placeholder="Country (optional)"
+            style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+          />
           <input
             value={freeCounty}
             onChange={e => setFreeCounty(e.target.value)}
@@ -641,7 +703,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Ready to scrape</div>
-          <div style={{ fontSize: 13 }}>Select a county, pick your cities and trades, then hit Run Scrape.</div>
+          <div style={{ fontSize: 13 }}>Select a country and county, pick your cities and trades, then hit Run Scrape.</div>
         </div>
       )}
 
@@ -656,7 +718,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             style={{ background: WHITE, borderRadius: 12, padding: 24, width: "100%", maxWidth: 360, boxShadow: "0 10px 40px rgba(0,0,0,0.25)" }}
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
-              {modalType === "county" && "Add County"}
+              {modalType === "country" && "Add Country"}
+              {modalType === "county" && `Add County to ${countryName}`}
               {modalType === "city" && `Add City to ${countyName}`}
               {modalType === "trade" && "Add Trade"}
             </div>
@@ -668,7 +731,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               value={modalValue}
               onChange={e => setModalValue(e.target.value)}
               onKeyDown={e => e.key === "Enter" && submitModal()}
-              placeholder={modalType === "county" ? "e.g. Ventura County" : modalType === "city" ? "e.g. Ventura" : "e.g. Landscaper"}
+              placeholder={
+                modalType === "country" ? "e.g. Canada" :
+                modalType === "county" ? "e.g. Ventura County" :
+                modalType === "city" ? "e.g. Ventura" : "e.g. Landscaper"
+              }
               style={{ width: "100%", padding: "10px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 14, marginBottom: 10, boxSizing: "border-box" }}
             />
             {modalError && (
