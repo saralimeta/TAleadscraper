@@ -1,4 +1,5 @@
 -- Run this once in the Supabase SQL editor for your project.
+-- Safe to re-run any time — every statement is idempotent.
 
 create table if not exists leads (
   id bigint generated always as identity primary key,
@@ -32,16 +33,43 @@ alter table leads drop constraint if exists leads_name_city_country_trade_key;
 alter table leads add constraint leads_name_city_country_trade_key unique (name, city, country, trade);
 
 
--- Counties, cities, and trades are user-extensible: anyone using the
--- app can add new ones (via /api/counties, /api/cities, /api/trades),
--- and they become available to everyone since they live here rather
--- than in hardcoded frontend arrays.
+-- Countries are the top level above counties, since the app was
+-- originally California-only (search.js used to hardcode "CA" on every
+-- query). Must exist before counties, since counties reference it.
 
-create table if not exists counties (
+create table if not exists countries (
   id bigint generated always as identity primary key,
   name text not null unique,
   created_at timestamptz not null default now()
 );
+
+alter table countries enable row level security;
+
+insert into countries (name) values ('United States')
+on conflict (name) do nothing;
+
+
+-- Counties, cities, and trades are user-extensible: anyone using the
+-- app can add new ones (via /api/counties, /api/cities, /api/trades),
+-- and they become available to everyone since they live here rather
+-- than in hardcoded frontend arrays. Counties belong to a country, so
+-- the same county/region name can exist in different countries.
+
+create table if not exists counties (
+  id bigint generated always as identity primary key,
+  name text not null,
+  country_id bigint references countries (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+-- Defensive migration for databases that ran an older version of this
+-- file, where counties didn't have country_id yet.
+alter table counties add column if not exists country_id bigint references countries (id) on delete cascade;
+update counties set country_id = (select id from countries where name = 'United States') where country_id is null;
+alter table counties alter column country_id set not null;
+alter table counties drop constraint if exists counties_name_key;
+alter table counties drop constraint if exists counties_name_country_id_key;
+alter table counties add constraint counties_name_country_id_key unique (name, country_id);
 
 create table if not exists cities (
   id bigint generated always as identity primary key,
@@ -63,11 +91,14 @@ alter table trades enable row level security;
 
 -- Seed with the original hardcoded lists so the app doesn't start empty.
 
-insert into counties (name) values
+insert into counties (name, country_id)
+select v.county, (select id from countries where name = 'United States')
+from (values
   ('Contra Costa County'), ('Alameda County'), ('San Francisco County'),
   ('San Mateo County'), ('Santa Clara County'), ('Marin County'),
   ('Sonoma County'), ('Sacramento County'), ('Los Angeles County'), ('Orange County')
-on conflict (name) do nothing;
+) as v(county)
+on conflict (name, country_id) do nothing;
 
 insert into cities (name, county_id)
 select v.city, c.id
@@ -117,31 +148,3 @@ insert into trades (name) values
   ('Roofer'), ('Painter'), ('Landscaper'), ('Concrete Contractor'), ('Flooring Contractor'),
   ('Tile Contractor'), ('Fence Contractor'), ('Handyman'), ('Pool Contractor'), ('Solar Installer')
 on conflict (name) do nothing;
-
-
--- Countries: the top level above counties, since the app was originally
--- California-only (search.js used to hardcode "CA" on every query).
--- Counties/regions now belong to a country instead of being a flat
--- global list, so the same county name can exist in different countries.
-
-create table if not exists countries (
-  id bigint generated always as identity primary key,
-  name text not null unique,
-  created_at timestamptz not null default now()
-);
-
-alter table countries enable row level security;
-
-insert into countries (name) values ('United States')
-on conflict (name) do nothing;
-
-alter table counties add column if not exists country_id bigint references countries (id) on delete cascade;
-
-update counties set country_id = (select id from countries where name = 'United States')
-where country_id is null;
-
-alter table counties alter column country_id set not null;
-
-alter table counties drop constraint if exists counties_name_key;
-alter table counties drop constraint if exists counties_name_country_id_key;
-alter table counties add constraint counties_name_country_id_key unique (name, country_id);
