@@ -73,11 +73,6 @@ export default function App() {
         ) : (
           <LeadsList leads={leads} />
         )}
-
-        {/* Footer */}
-        <div style={{ marginTop: 24, textAlign: "center", color: "#A0AEC0", fontSize: 11, letterSpacing: "0.05em" }}>
-          TRADEANCHOR.AI · Lead Scraper · For DJ &amp; CJ · Confidential
-        </div>
       </div>
     </div>
   );
