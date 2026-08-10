@@ -86,6 +86,15 @@ function analyzeHtml(html, finalUrl) {
     score += 2;
   }
 
+  const hasStylesheetLink = $('link[rel="stylesheet"]').length > 0;
+  const hasStyleBlock = $("style")
+    .toArray()
+    .some((el) => $(el).html()?.trim().length > 20);
+  if (!hasStylesheetLink && !hasStyleBlock) {
+    signals.push("No CSS/stylesheets found");
+    score += 2;
+  }
+
   const status = score >= 5 ? "outdated" : score >= 2 ? "needs_update" : "modern";
   return { status, score, signals };
 }

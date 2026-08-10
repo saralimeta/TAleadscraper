@@ -39,10 +39,25 @@ export default function LeadsList({ leads, setLeads }) {
   const CITIES = useMemo(() => [...new Set(leads.map(l => l.city))].sort(), [leads]);
   const STATUSES = useMemo(() => [...new Set(leads.map(l => l.website_status).filter(Boolean))].sort(), [leads]);
 
-  const unanalyzedCount = useMemo(() => leads.filter(l => l.website && !l.website_status).length, [leads]);
+  const filtered = useMemo(() => leads
+    .filter(l => countryF === "All" || l.country === countryF)
+    .filter(l => countyF === "All" || l.county === countyF)
+    .filter(l => tradeF === "All" || l.trade === tradeF)
+    .filter(l => cityF === "All" || l.city === cityF)
+    .filter(l => statusF === "All" || l.website_status === statusF)
+    .filter(l => l.rating >= minR && l.reviews >= minRev)
+    .filter(l => pF === "All" || priorityOf(l.reviews) === pF)
+    .filter(l => !q || l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase()) || l.trade.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => sort === "reviews" ? b.reviews - a.reviews : sort === "rating" ? b.rating - a.rating : sort === "name" ? a.name.localeCompare(b.name) : a.trade.localeCompare(b.trade)),
+    [leads, countryF, countyF, tradeF, cityF, statusF, minR, minRev, pF, sort, q]
+  );
+
+  // Analyze operates on the filtered set (mirrors Export CSV), so the
+  // button's count matches whatever the user is currently looking at.
+  const unanalyzedCount = useMemo(() => filtered.filter(l => l.website && !l.website_status).length, [filtered]);
 
   async function analyzeWebsites() {
-    const targets = leads.filter(l => l.website && !l.website_status);
+    const targets = filtered.filter(l => l.website && !l.website_status);
     if (targets.length === 0 || analyzing) return;
     setAnalyzing(true);
     setProgress({ done: 0, total: targets.length });
@@ -70,19 +85,6 @@ export default function LeadsList({ leads, setLeads }) {
     await Promise.all(Array.from({ length: Math.min(ANALYZE_CONCURRENCY, targets.length) }, worker));
     setAnalyzing(false);
   }
-
-  const filtered = useMemo(() => leads
-    .filter(l => countryF === "All" || l.country === countryF)
-    .filter(l => countyF === "All" || l.county === countyF)
-    .filter(l => tradeF === "All" || l.trade === tradeF)
-    .filter(l => cityF === "All" || l.city === cityF)
-    .filter(l => statusF === "All" || l.website_status === statusF)
-    .filter(l => l.rating >= minR && l.reviews >= minRev)
-    .filter(l => pF === "All" || priorityOf(l.reviews) === pF)
-    .filter(l => !q || l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase()) || l.trade.toLowerCase().includes(q.toLowerCase()))
-    .sort((a, b) => sort === "reviews" ? b.reviews - a.reviews : sort === "rating" ? b.rating - a.rating : sort === "name" ? a.name.localeCompare(b.name) : a.trade.localeCompare(b.trade)),
-    [leads, countryF, countyF, tradeF, cityF, statusF, minR, minRev, pF, sort, q]
-  );
 
   const tradeCounts = useMemo(() => {
     const c = {};
