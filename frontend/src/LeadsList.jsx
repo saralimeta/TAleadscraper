@@ -10,32 +10,78 @@ function websiteLabel(website) {
   return website.replace(/^https?:\/\//i, "").replace(/\/$/, "");
 }
 
-export default function LeadsList({ leads }) {
+const STATUS_META = {
+  outdated: { label: "Outdated", colors: ["#FFF5F5", "#C53030", "#FEB2B2"] },
+  needs_update: { label: "Needs Update", colors: ["#FFFAF0", "#C05621", "#FBD38D"] },
+  modern: { label: "Modern", colors: ["#F0FFF4", "#276749", "#9AE6B4"] },
+  unreachable: { label: "Unreachable", colors: ["#F7FAFC", "#718096", "#CBD5E0"] },
+};
+
+const ANALYZE_CONCURRENCY = 3;
+
+export default function LeadsList({ leads, setLeads }) {
   const [countryF, setCountryF] = useState("All");
   const [countyF, setCountyF] = useState("All");
   const [tradeF, setTradeF] = useState("All");
   const [cityF, setCityF] = useState("All");
+  const [statusF, setStatusF] = useState("All");
   const [minR, setMinR] = useState(0);
   const [minRev, setMinRev] = useState(0);
   const [pF, setPF] = useState("All");
   const [sort, setSort] = useState("reviews");
   const [q, setQ] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   const COUNTRIES = useMemo(() => [...new Set(leads.map(l => l.country).filter(Boolean))].sort(), [leads]);
   const COUNTIES = useMemo(() => [...new Set(leads.map(l => l.county).filter(Boolean))].sort(), [leads]);
   const TRADES = useMemo(() => [...new Set(leads.map(l => l.trade))].sort(), [leads]);
   const CITIES = useMemo(() => [...new Set(leads.map(l => l.city))].sort(), [leads]);
+  const STATUSES = useMemo(() => [...new Set(leads.map(l => l.website_status).filter(Boolean))].sort(), [leads]);
+
+  const unanalyzedCount = useMemo(() => leads.filter(l => l.website && !l.website_status).length, [leads]);
+
+  async function analyzeWebsites() {
+    const targets = leads.filter(l => l.website && !l.website_status);
+    if (targets.length === 0 || analyzing) return;
+    setAnalyzing(true);
+    setProgress({ done: 0, total: targets.length });
+
+    let idx = 0;
+    const worker = async () => {
+      while (idx < targets.length) {
+        const lead = targets[idx++];
+        try {
+          const res = await fetch("/api/check-website", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: lead.id, website: lead.website }),
+          });
+          if (res.ok) {
+            const patch = await res.json();
+            setLeads(prev => prev.map(l => l.id === patch.id ? { ...l, ...patch } : l));
+          }
+        } catch {
+          // Network error — lead stays unchecked, user can click Analyze again.
+        }
+        setProgress(p => ({ ...p, done: p.done + 1 }));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(ANALYZE_CONCURRENCY, targets.length) }, worker));
+    setAnalyzing(false);
+  }
 
   const filtered = useMemo(() => leads
     .filter(l => countryF === "All" || l.country === countryF)
     .filter(l => countyF === "All" || l.county === countyF)
     .filter(l => tradeF === "All" || l.trade === tradeF)
     .filter(l => cityF === "All" || l.city === cityF)
+    .filter(l => statusF === "All" || l.website_status === statusF)
     .filter(l => l.rating >= minR && l.reviews >= minRev)
     .filter(l => pF === "All" || priorityOf(l.reviews) === pF)
     .filter(l => !q || l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase()) || l.trade.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => sort === "reviews" ? b.reviews - a.reviews : sort === "rating" ? b.rating - a.rating : sort === "name" ? a.name.localeCompare(b.name) : a.trade.localeCompare(b.trade)),
-    [leads, countryF, countyF, tradeF, cityF, minR, minRev, pF, sort, q]
+    [leads, countryF, countyF, tradeF, cityF, statusF, minR, minRev, pF, sort, q]
   );
 
   const tradeCounts = useMemo(() => {
@@ -176,6 +222,37 @@ export default function LeadsList({ leads }) {
           </div>
         </div>
 
+        {/* Website Status chips */}
+        {STATUSES.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#4A5568", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                Filter by Website Status <span style={{ color: GOLD }}>({statusF === "All" ? "ALL" : STATUS_META[statusF]?.label || statusF})</span>
+              </span>
+              {statusF !== "All" && <button onClick={() => setStatusF("All")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>Show All</button>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {STATUSES.map(s => {
+                const cnt = leads.filter(l => l.website_status === s).length;
+                const meta = STATUS_META[s] || { label: s, colors: ["#fff", "#4A5568", "#CBD5E0"] };
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStatusF(statusF === s ? "All" : s)}
+                    style={{
+                      padding: "5px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                      background: statusF === s ? meta.colors[1] : meta.colors[0], color: statusF === s ? "#fff" : meta.colors[1],
+                      border: `1.5px solid ${meta.colors[2]}`
+                    }}
+                  >
+                    {meta.label} <span style={{ opacity: 0.65, fontSize: 10 }}>({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* Dropdowns */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(130px,1fr))", gap: 10, marginBottom: 14 }}>
           <div>
@@ -204,7 +281,24 @@ export default function LeadsList({ leads }) {
           </div>
         </div>
 
-        <ExportCSV leads={filtered} />
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <ExportCSV leads={filtered} />
+          <button
+            onClick={analyzeWebsites}
+            disabled={analyzing || unanalyzedCount === 0}
+            style={{
+              padding: "11px 22px", borderRadius: 8, fontSize: 14, fontWeight: 700,
+              cursor: analyzing || unanalyzedCount === 0 ? "not-allowed" : "pointer",
+              background: analyzing || unanalyzedCount === 0 ? "#A0AEC0" : GOLD, color: NAVY, border: "none", whiteSpace: "nowrap"
+            }}
+          >
+            {analyzing
+              ? `Checking ${progress.done} / ${progress.total}…`
+              : unanalyzedCount === 0
+                ? "All websites analyzed"
+                : `🔍 Analyze ${unanalyzedCount} website${unanalyzedCount === 1 ? "" : "s"}`}
+          </button>
+        </div>
       </div>
 
       {/* Trade summary pills */}
@@ -253,7 +347,23 @@ export default function LeadsList({ leads }) {
                       {l.phone ? <a href={`tel:${l.phone}`} style={{ color: GOLD, fontWeight: 600, textDecoration: "none" }}>{l.phone}</a> : <span style={{ color: "#CBD5E0" }}>—</span>}
                     </td>
                     <td style={{ padding: "7px 11px", whiteSpace: "nowrap" }}>
-                      {l.website ? <a href={websiteHref(l.website)} target="_blank" rel="noreferrer" style={{ color: "#3182CE", textDecoration: "none", fontSize: 11 }}>{websiteLabel(l.website)}</a> : <span style={{ color: "#CBD5E0" }}>—</span>}
+                      {l.website ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <a href={websiteHref(l.website)} target="_blank" rel="noreferrer" style={{ color: "#3182CE", textDecoration: "none", fontSize: 11 }}>{websiteLabel(l.website)}</a>
+                          {l.website_status && (
+                            <span
+                              title={(l.website_signals || []).join(", ")}
+                              style={{
+                                padding: "2px 6px", borderRadius: 10, fontSize: 9, fontWeight: 700,
+                                background: STATUS_META[l.website_status]?.colors[0], color: STATUS_META[l.website_status]?.colors[1],
+                                border: `1px solid ${STATUS_META[l.website_status]?.colors[2]}`
+                              }}
+                            >
+                              {STATUS_META[l.website_status]?.label || l.website_status}
+                            </span>
+                          )}
+                        </div>
+                      ) : <span style={{ color: "#CBD5E0" }}>—</span>}
                     </td>
                     <td style={{ padding: "7px 11px", whiteSpace: "nowrap" }}>
                       {l.email ? <a href={`mailto:${l.email}`} style={{ color: "#38A169", textDecoration: "none", fontSize: 11 }}>{l.email}</a> : <span style={{ color: "#CBD5E0" }}>—</span>}

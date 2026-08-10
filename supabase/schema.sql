@@ -32,6 +32,14 @@ alter table leads drop constraint if exists leads_name_city_trade_key;
 alter table leads drop constraint if exists leads_name_city_country_trade_key;
 alter table leads add constraint leads_name_city_country_trade_key unique (name, city, country, trade);
 
+-- Website freshness: populated on-demand (Leads List "Analyze Websites"
+-- button -> /api/check-website), not at scrape time, since it requires
+-- fetching each lead's site and Serper never gives us page content.
+alter table leads add column if not exists website_status text;
+alter table leads add column if not exists website_score integer;
+alter table leads add column if not exists website_signals jsonb default '[]'::jsonb;
+alter table leads add column if not exists website_checked_at timestamptz;
+
 
 -- Countries are the top level above counties, since the app was
 -- originally California-only (search.js used to hardcode "CA" on every

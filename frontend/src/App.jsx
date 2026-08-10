@@ -71,7 +71,7 @@ export default function App() {
         {tab === "dashboard" ? (
           <ScraperDashboard leads={leads} setLeads={setLeads} scraped={scraped} setScraped={setScraped} />
         ) : (
-          <LeadsList leads={leads} />
+          <LeadsList leads={leads} setLeads={setLeads} />
         )}
       </div>
     </div>
