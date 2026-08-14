@@ -1,102 +1,120 @@
-import * as cheerio from "cheerio";
+import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 import { supabase } from "./_supabase.js";
 
-const FETCH_TIMEOUT_MS = 8000;
-const STALE_COPYRIGHT_YEARS = 6;
-const USER_AGENT =
-  "Mozilla/5.0 (compatible; TradeAnchorBot/1.0; +https://tradeanchor.ai)";
+const SCREENSHOT_TIMEOUT_MS = 20000;
+// Claude's vision resolution ceiling is 2576px on the long edge; images
+// beyond that get downscaled by the API, wasting the extra page length
+// on unreadable pixels. Capping here keeps every byte we send useful.
+const MAX_SCREENSHOT_HEIGHT = 2560;
 
-const OLD_GENERATORS = [
-  "frontpage",
-  "adobe muse",
-  "dreamweaver",
-  "microsoft word",
-];
+const anthropic = new Anthropic();
+
+const JUDGE_PROMPT = `You're looking at a screenshot of a live small-business website. Judge ONLY its visual design and layout — not the business itself — to decide whether it looks modern or outdated. We're using this to identify businesses that would benefit from a website redesign.
+
+Consider: typography, color palette, spacing/whitespace, image quality, layout structure, and whether the design looks like it would work well on mobile.
+
+Respond with:
+- "status": "modern" (looks current, professional, well-designed) or "outdated" (looks dated, cluttered, unattractive, or otherwise in need of a redesign — if it's not clearly modern, call it outdated)
+- "score": 0 (very modern) to 10 (very outdated)
+- "signals": 2-4 short, specific visual reasons for your verdict (e.g. "cluttered layout with no whitespace", "dated gradient/button style", "tiny hard-to-read body text")`;
 
 function normalizeUrl(website) {
   return /^https?:\/\//i.test(website) ? website : `https://${website}`;
 }
 
-async function fetchHtml(url) {
+async function captureScreenshot(url) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      signal: controller.signal,
-      headers: { "User-Agent": USER_AGENT },
+  const timer = setTimeout(() => controller.abort(), SCREENSHOT_TIMEOUT_MS);
+  const shotUrl =
+    "https://api.screenshotone.com/take?" +
+    new URLSearchParams({
+      access_key: process.env.SCREENSHOT_API_KEY,
+      url,
+      viewport_width: "1280",
+      viewport_height: "832",
+      full_page: "true",
+      format: "png",
+      block_ads: "true",
+      block_cookie_banners: "true",
+      block_trackers: "true",
+      cache: "false",
     });
+
+  try {
+    const res = await fetch(shotUrl, { signal: controller.signal });
     if (!res.ok) {
-      return { ok: false };
+      // 401/403/429 usually mean the screenshot provider itself rejected
+      // the request (bad key, rate limit) rather than the target site
+      // being unreachable — worth distinguishing in the UI.
+      const blocked = [401, 403, 429].includes(res.status);
+      return { ok: false, blocked, status: res.status };
     }
-    const html = await res.text();
-    return { ok: true, html, finalUrl: res.url };
+    const buf = Buffer.from(await res.arrayBuffer());
+    const capped = await capScreenshotHeight(buf);
+    return { ok: true, base64: capped.toString("base64") };
   } catch {
-    return { ok: false };
+    return { ok: false, blocked: false };
   } finally {
     clearTimeout(timer);
   }
 }
 
-function analyzeHtml(html, finalUrl) {
-  const $ = cheerio.load(html);
-  const signals = [];
-  let score = 0;
+// Full-page captures can run to many thousands of pixels tall on long
+// sites; crop to the top MAX_SCREENSHOT_HEIGHT rather than shipping a
+// huge image Claude would just downscale anyway.
+async function capScreenshotHeight(buf) {
+  const image = sharp(buf);
+  const { width, height } = await image.metadata();
+  if (!height || height <= MAX_SCREENSHOT_HEIGHT) return buf;
+  return image
+    .extract({ left: 0, top: 0, width, height: MAX_SCREENSHOT_HEIGHT })
+    .png()
+    .toBuffer();
+}
 
-  if ($('meta[name="viewport"]').length === 0) {
-    signals.push("Not mobile-friendly (no viewport tag)");
-    score += 3;
+async function judgeScreenshot(base64) {
+  const response = await anthropic.messages.create({
+    model: "claude-opus-5",
+    max_tokens: 512,
+    output_config: {
+      format: {
+        type: "json_schema",
+        schema: {
+          type: "object",
+          properties: {
+            status: {
+              type: "string",
+              enum: ["modern", "outdated"],
+            },
+            score: { type: "integer" },
+            signals: { type: "array", items: { type: "string" } },
+          },
+          required: ["status", "score", "signals"],
+          additionalProperties: false,
+        },
+      },
+    },
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "image",
+            source: { type: "base64", media_type: "image/png", data: base64 },
+          },
+          { type: "text", text: JUDGE_PROMPT },
+        ],
+      },
+    ],
+  });
+
+  if (response.stop_reason === "refusal") {
+    return { status: "unreachable", score: null, signals: ["Analysis declined"] };
   }
 
-  if (!/^https:\/\//i.test(finalUrl)) {
-    signals.push("No HTTPS");
-    score += 2;
-  }
-
-  if ($("marquee, frameset, font, center").length > 0) {
-    signals.push("Deprecated markup (marquee/frameset/font/center)");
-    score += 2;
-  }
-
-  const bodyHtml = $.html();
-  const hasFlash =
-    /\.swf(\W|$)/i.test(bodyHtml) ||
-    $('object[type="application/x-shockwave-flash"]').length > 0;
-  if (hasFlash) {
-    signals.push("References Flash content");
-    score += 3;
-  }
-
-  const bodyText = $("body").text();
-  const years = [...bodyText.matchAll(/©\s*(\d{4})/g)].map((m) =>
-    parseInt(m[1], 10)
-  );
-  if (years.length > 0) {
-    const maxYear = Math.max(...years);
-    const currentYear = new Date().getFullYear();
-    if (currentYear - maxYear >= STALE_COPYRIGHT_YEARS) {
-      signals.push(`Old copyright year (${maxYear})`);
-      score += 2;
-    }
-  }
-
-  const generator = $('meta[name="generator"]').attr("content") || "";
-  if (OLD_GENERATORS.some((g) => generator.toLowerCase().includes(g))) {
-    signals.push(`Old site-builder tooling (${generator})`);
-    score += 2;
-  }
-
-  const hasStylesheetLink = $('link[rel="stylesheet"]').length > 0;
-  const hasStyleBlock = $("style")
-    .toArray()
-    .some((el) => $(el).html()?.trim().length > 20);
-  if (!hasStylesheetLink && !hasStyleBlock) {
-    signals.push("No CSS/stylesheets found");
-    score += 2;
-  }
-
-  const status = score >= 5 ? "outdated" : score >= 2 ? "needs_update" : "modern";
-  return { status, score, signals };
+  const textBlock = response.content.find((b) => b.type === "text");
+  return JSON.parse(textBlock.text);
 }
 
 export default async function handler(req, res) {
@@ -110,11 +128,28 @@ export default async function handler(req, res) {
   }
 
   const url = normalizeUrl(website);
-  const fetched = await fetchHtml(url);
+  const shot = await captureScreenshot(url);
 
-  const result = fetched.ok
-    ? analyzeHtml(fetched.html, fetched.finalUrl)
-    : { status: "unreachable", score: null, signals: ["Site did not respond"] };
+  let result;
+  if (!shot.ok) {
+    result = shot.blocked
+      ? {
+          status: "blocked",
+          score: null,
+          signals: [`Screenshot service rejected the request (HTTP ${shot.status})`],
+        }
+      : {
+          status: "unreachable",
+          score: null,
+          signals: ["Could not capture a screenshot — site may be down"],
+        };
+  } else {
+    try {
+      result = await judgeScreenshot(shot.base64);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
 
   const patch = {
     website_status: result.status,

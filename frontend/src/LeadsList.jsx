@@ -12,9 +12,9 @@ function websiteLabel(website) {
 
 const STATUS_META = {
   outdated: { label: "Outdated", colors: ["#FFF5F5", "#C53030", "#FEB2B2"] },
-  needs_update: { label: "Needs Update", colors: ["#FFFAF0", "#C05621", "#FBD38D"] },
   modern: { label: "Modern", colors: ["#F0FFF4", "#276749", "#9AE6B4"] },
   unreachable: { label: "Unreachable", colors: ["#F7FAFC", "#718096", "#CBD5E0"] },
+  blocked: { label: "Blocked Check", colors: ["#EBF8FF", "#2C5282", "#90CDF4"] },
 };
 
 const ANALYZE_CONCURRENCY = 3;
@@ -353,15 +353,27 @@ export default function LeadsList({ leads, setLeads }) {
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <a href={websiteHref(l.website)} target="_blank" rel="noreferrer" style={{ color: "#3182CE", textDecoration: "none", fontSize: 11 }}>{websiteLabel(l.website)}</a>
                           {l.website_status && (
-                            <span
-                              title={(l.website_signals || []).join(", ")}
-                              style={{
-                                padding: "2px 6px", borderRadius: 10, fontSize: 9, fontWeight: 700,
-                                background: STATUS_META[l.website_status]?.colors[0], color: STATUS_META[l.website_status]?.colors[1],
-                                border: `1px solid ${STATUS_META[l.website_status]?.colors[2]}`
-                              }}
-                            >
-                              {STATUS_META[l.website_status]?.label || l.website_status}
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 3 }}>
+                              <span
+                                style={{
+                                  padding: "2px 6px", borderRadius: 10, fontSize: 9, fontWeight: 700,
+                                  background: STATUS_META[l.website_status]?.colors[0], color: STATUS_META[l.website_status]?.colors[1],
+                                  border: `1px solid ${STATUS_META[l.website_status]?.colors[2]}`
+                                }}
+                              >
+                                {STATUS_META[l.website_status]?.label || l.website_status}
+                              </span>
+                              {(l.website_score != null || (l.website_signals || []).length > 0) && (
+                                <span
+                                  title={[
+                                    l.website_score != null ? `Score: ${l.website_score}/10` : null,
+                                    ...(l.website_signals || []),
+                                  ].filter(Boolean).join(" — ")}
+                                  style={{ fontSize: 10, color: "#A0AEC0", cursor: "help" }}
+                                >
+                                  ⓘ
+                                </span>
+                              )}
                             </span>
                           )}
                         </div>
