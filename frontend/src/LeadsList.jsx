@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { NAVY, GOLD, priorityOf } from "./theme.js";
 import ExportCSV from "./ExportCSV.jsx";
 
@@ -21,29 +22,40 @@ const ANALYZE_CONCURRENCY = 3;
 
 function InfoIcon({ text }) {
   const [show, setShow] = useState(false);
+  const [pos, setPos] = useState({ top: 0, left: 0 });
+  const ref = useRef(null);
   if (!text) return null;
+
+  function handleEnter() {
+    const rect = ref.current.getBoundingClientRect();
+    setPos({ top: rect.top, left: rect.left + rect.width / 2 });
+    setShow(true);
+  }
+
   return (
     <span
-      onMouseEnter={() => setShow(true)}
+      ref={ref}
+      onMouseEnter={handleEnter}
       onMouseLeave={() => setShow(false)}
       style={{
-        position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
         width: 12, height: 12, borderRadius: "50%", border: "1px solid #A0AEC0",
         fontSize: 8, fontWeight: 700, fontStyle: "italic", fontFamily: "Georgia, serif",
         color: "#A0AEC0", cursor: "help", flexShrink: 0
       }}
     >
       i
-      {show && (
-        <span style={{
-          position: "absolute", bottom: "140%", left: "50%", transform: "translateX(-50%)",
+      {show && createPortal(
+        <div style={{
+          position: "fixed", top: pos.top - 8, left: pos.left, transform: "translate(-50%, -100%)",
           background: "#1A202C", color: "#fff", padding: "7px 10px", borderRadius: 6,
           fontSize: 11, fontWeight: 400, fontStyle: "normal", fontFamily: "system-ui, sans-serif",
-          whiteSpace: "normal", width: 220, zIndex: 20, boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
-          textAlign: "left", lineHeight: 1.4
+          whiteSpace: "normal", width: 220, zIndex: 9999, boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
+          textAlign: "left", lineHeight: 1.4, pointerEvents: "none"
         }}>
           {text}
-        </span>
+        </div>,
+        document.body
       )}
     </span>
   );
