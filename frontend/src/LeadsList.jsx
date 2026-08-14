@@ -19,6 +19,36 @@ const STATUS_META = {
 
 const ANALYZE_CONCURRENCY = 3;
 
+function InfoIcon({ text }) {
+  const [show, setShow] = useState(false);
+  if (!text) return null;
+  return (
+    <span
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+      style={{
+        position: "relative", display: "inline-flex", alignItems: "center", justifyContent: "center",
+        width: 12, height: 12, borderRadius: "50%", border: "1px solid #A0AEC0",
+        fontSize: 8, fontWeight: 700, fontStyle: "italic", fontFamily: "Georgia, serif",
+        color: "#A0AEC0", cursor: "help", flexShrink: 0
+      }}
+    >
+      i
+      {show && (
+        <span style={{
+          position: "absolute", bottom: "140%", left: "50%", transform: "translateX(-50%)",
+          background: "#1A202C", color: "#fff", padding: "7px 10px", borderRadius: 6,
+          fontSize: 11, fontWeight: 400, fontStyle: "normal", fontFamily: "system-ui, sans-serif",
+          whiteSpace: "normal", width: 220, zIndex: 20, boxShadow: "0 4px 10px rgba(0,0,0,0.25)",
+          textAlign: "left", lineHeight: 1.4
+        }}>
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export default function LeadsList({ leads, setLeads }) {
   const [countryF, setCountryF] = useState("All");
   const [countyF, setCountyF] = useState("All");
@@ -363,22 +393,10 @@ export default function LeadsList({ leads, setLeads }) {
                               >
                                 {STATUS_META[l.website_status]?.label || l.website_status}
                               </span>
-                              {(l.website_score != null || (l.website_signals || []).length > 0) && (
-                                <span
-                                  title={[
-                                    l.website_score != null ? `Score: ${l.website_score}/10` : null,
-                                    ...(l.website_signals || []),
-                                  ].filter(Boolean).join(" — ")}
-                                  style={{
-                                    display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                    width: 12, height: 12, borderRadius: "50%", border: "1px solid #A0AEC0",
-                                    fontSize: 8, fontWeight: 700, fontStyle: "italic", fontFamily: "Georgia, serif",
-                                    color: "#A0AEC0", cursor: "help", flexShrink: 0
-                                  }}
-                                >
-                                  i
-                                </span>
-                              )}
+                              <InfoIcon text={[
+                                l.website_score != null ? `Score: ${l.website_score}/10` : null,
+                                ...(l.website_signals || []),
+                              ].filter(Boolean).join(" — ")} />
                             </span>
                           )}
                         </div>
