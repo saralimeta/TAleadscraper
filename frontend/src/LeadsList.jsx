@@ -369,9 +369,14 @@ export default function LeadsList({ leads, setLeads }) {
                                     l.website_score != null ? `Score: ${l.website_score}/10` : null,
                                     ...(l.website_signals || []),
                                   ].filter(Boolean).join(" — ")}
-                                  style={{ fontSize: 10, color: "#A0AEC0", cursor: "help" }}
+                                  style={{
+                                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                    width: 12, height: 12, borderRadius: "50%", border: "1px solid #A0AEC0",
+                                    fontSize: 8, fontWeight: 700, fontStyle: "italic", fontFamily: "Georgia, serif",
+                                    color: "#A0AEC0", cursor: "help", flexShrink: 0
+                                  }}
                                 >
-                                  ⓘ
+                                  i
                                 </span>
                               )}
                             </span>
