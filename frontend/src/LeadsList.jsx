@@ -63,6 +63,7 @@ function InfoIcon({ text }) {
 
 export default function LeadsList({ leads, setLeads }) {
   const [countryF, setCountryF] = useState("All");
+  const [stateF, setStateF] = useState("All");
   const [countyF, setCountyF] = useState("All");
   const [tradeF, setTradeF] = useState("All");
   const [cityF, setCityF] = useState("All");
@@ -76,6 +77,7 @@ export default function LeadsList({ leads, setLeads }) {
   const [progress, setProgress] = useState({ done: 0, total: 0 });
 
   const COUNTRIES = useMemo(() => [...new Set(leads.map(l => l.country).filter(Boolean))].sort(), [leads]);
+  const STATES = useMemo(() => [...new Set(leads.map(l => l.state).filter(Boolean))].sort(), [leads]);
   const COUNTIES = useMemo(() => [...new Set(leads.map(l => l.county).filter(Boolean))].sort(), [leads]);
   const TRADES = useMemo(() => [...new Set(leads.map(l => l.trade))].sort(), [leads]);
   const CITIES = useMemo(() => [...new Set(leads.map(l => l.city))].sort(), [leads]);
@@ -83,6 +85,7 @@ export default function LeadsList({ leads, setLeads }) {
 
   const filtered = useMemo(() => leads
     .filter(l => countryF === "All" || l.country === countryF)
+    .filter(l => stateF === "All" || l.state === stateF)
     .filter(l => countyF === "All" || l.county === countyF)
     .filter(l => tradeF === "All" || l.trade === tradeF)
     .filter(l => cityF === "All" || l.city === cityF)
@@ -91,7 +94,7 @@ export default function LeadsList({ leads, setLeads }) {
     .filter(l => pF === "All" || priorityOf(l.reviews) === pF)
     .filter(l => !q || l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase()) || l.trade.toLowerCase().includes(q.toLowerCase()))
     .sort((a, b) => sort === "reviews" ? b.reviews - a.reviews : sort === "rating" ? b.rating - a.rating : sort === "name" ? a.name.localeCompare(b.name) : a.trade.localeCompare(b.trade)),
-    [leads, countryF, countyF, tradeF, cityF, statusF, minR, minRev, pF, sort, q]
+    [leads, countryF, stateF, countyF, tradeF, cityF, statusF, minR, minRev, pF, sort, q]
   );
 
   // Analyze operates on the filtered set (mirrors Export CSV), so the
@@ -176,6 +179,36 @@ export default function LeadsList({ leads, setLeads }) {
                     }}
                   >
                     {c} <span style={{ opacity: 0.65, fontSize: 10 }}>({cnt})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* State chips */}
+        {STATES.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 7 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#4A5568", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+                Filter by State <span style={{ color: GOLD }}>({stateF === "All" ? "ALL" : stateF})</span>
+              </span>
+              {stateF !== "All" && <button onClick={() => setStateF("All")} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 700, padding: 0 }}>Show All</button>}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {STATES.map(s => {
+                const cnt = leads.filter(l => l.state === s).length;
+                return (
+                  <button
+                    key={s}
+                    onClick={() => setStateF(stateF === s ? "All" : s)}
+                    style={{
+                      padding: "5px 11px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer",
+                      background: stateF === s ? GOLD : "#fff", color: stateF === s ? NAVY : "#4A5568",
+                      border: `1.5px solid ${stateF === s ? GOLD : "#CBD5E0"}`
+                    }}
+                  >
+                    {s} <span style={{ opacity: 0.65, fontSize: 10 }}>({cnt})</span>
                   </button>
                 );
               })}
@@ -366,14 +399,14 @@ export default function LeadsList({ leads, setLeads }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
               <tr style={{ background: NAVY }}>
-                {["#", "Trade", "Business Name", "Country", "County", "City", "Phone", "Website", "Email", "Rating", "Reviews", "Priority"].map(h => (
+                {["#", "Trade", "Business Name", "Country", "State", "County", "City", "Phone", "Website", "Email", "Rating", "Reviews", "Priority"].map(h => (
                   <th key={h} style={{ padding: "9px 11px", color: "#fff", fontWeight: 700, textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
-                <tr><td colSpan={12} style={{ padding: "28px", textAlign: "center", color: "#A0AEC0" }}>
+                <tr><td colSpan={13} style={{ padding: "28px", textAlign: "center", color: "#A0AEC0" }}>
                   {leads.length === 0 ? "No leads yet — run a scrape on the Scraper Dashboard tab" : "No leads match — adjust filters above"}
                 </td></tr>
               ) : filtered.map((l, i) => {
@@ -385,6 +418,7 @@ export default function LeadsList({ leads, setLeads }) {
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.trade}</td>
                     <td style={{ padding: "7px 11px", fontWeight: 600, color: NAVY, minWidth: 180 }}>{l.name}</td>
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.country || <span style={{ color: "#CBD5E0" }}>—</span>}</td>
+                    <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.state || <span style={{ color: "#CBD5E0" }}>—</span>}</td>
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.county || <span style={{ color: "#CBD5E0" }}>—</span>}</td>
                     <td style={{ padding: "7px 11px", color: "#4A5568", whiteSpace: "nowrap" }}>{l.city}</td>
                     <td style={{ padding: "7px 11px", whiteSpace: "nowrap" }}>

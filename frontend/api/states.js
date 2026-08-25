@@ -6,24 +6,24 @@ export default async function handler(req, res) {
   }
 
   const name = (req.body?.name || "").trim();
-  const stateId = req.body?.stateId;
+  const countryId = req.body?.countryId;
 
-  if (!name || !stateId) {
-    return res.status(400).json({ error: "'name' and 'stateId' are required" });
+  if (!name || !countryId) {
+    return res.status(400).json({ error: "'name' and 'countryId' are required" });
   }
 
   const { data, error } = await supabase
-    .from("counties")
-    .insert({ name, state_id: stateId })
-    .select("id, name, state_id")
+    .from("states")
+    .insert({ name, country_id: countryId })
+    .select("id, name, country_id")
     .single();
 
   if (error) {
     if (error.code === "23505") {
-      return res.status(409).json({ error: "That county already exists in this state" });
+      return res.status(409).json({ error: "That state already exists in this country" });
     }
     return res.status(500).json({ error: error.message });
   }
 
-  return res.status(201).json({ county: { ...data, cities: [] } });
+  return res.status(201).json({ state: { ...data, counties: [] } });
 }

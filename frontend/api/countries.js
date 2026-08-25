@@ -4,7 +4,7 @@ export default async function handler(req, res) {
   if (req.method === "GET") {
     const { data, error } = await supabase
       .from("countries")
-      .select("id, name, counties(id, name, country_id, cities(id, name))")
+      .select("id, name, states(id, name, country_id, counties(id, name, state_id, cities(id, name)))")
       .order("name");
 
     if (error) {
@@ -13,10 +13,15 @@ export default async function handler(req, res) {
 
     const countries = data.map((country) => ({
       ...country,
-      counties: [...country.counties]
-        .map((county) => ({
-          ...county,
-          cities: [...county.cities].sort((a, b) => a.name.localeCompare(b.name)),
+      states: [...country.states]
+        .map((state) => ({
+          ...state,
+          counties: [...state.counties]
+            .map((county) => ({
+              ...county,
+              cities: [...county.cities].sort((a, b) => a.name.localeCompare(b.name)),
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name)),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     }));
@@ -43,7 +48,7 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: error.message });
     }
 
-    return res.status(201).json({ country: { ...data, counties: [] } });
+    return res.status(201).json({ country: { ...data, states: [] } });
   }
 
   return res.status(405).json({ error: "Method not allowed" });

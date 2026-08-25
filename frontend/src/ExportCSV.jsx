@@ -2,12 +2,13 @@ import { NAVY, WHITE, priorityOf } from "./theme.js";
 
 export default function ExportCSV({ leads }) {
   const go = () => {
-    const hdr = ["#", "Trade", "Business Name", "Country", "County", "City", "Phone", "Website", "Website Status", "Email", "Rating", "Reviews", "Priority", "Contacted", "Follow-Up", "Notes"];
+    const hdr = ["#", "Trade", "Business Name", "Country", "State", "County", "City", "Phone", "Website", "Website Status", "Email", "Rating", "Reviews", "Priority", "Contacted", "Follow-Up", "Notes"];
     const rows = leads.map((l, i) => [
       i + 1,
       l.trade,
       `"${l.name.replace(/"/g, '""')}"`,
       l.country || "",
+      l.state || "",
       l.county || "",
       l.city,
       l.phone || "",

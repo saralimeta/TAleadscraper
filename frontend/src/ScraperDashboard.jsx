@@ -4,13 +4,14 @@ import { NAVY, GOLD, GOLD_LIGHT, SLATE, WHITE, SUCCESS, SUCCESS_BG, priorityOf }
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 function downloadCSV(leads) {
-  const headers = ["#", "Trade", "Business Name", "Address", "Country", "County", "City", "Phone", "Rating", "Reviews", "Priority", "Website", "Hours", "Contacted", "Follow-Up Date", "Notes"];
+  const headers = ["#", "Trade", "Business Name", "Address", "Country", "State", "County", "City", "Phone", "Rating", "Reviews", "Priority", "Website", "Hours", "Contacted", "Follow-Up Date", "Notes"];
   const rows = leads.map((l, i) => [
     i + 1,
     l.trade,
     `"${l.name.replace(/"/g, '""')}"`,
     `"${l.address.replace(/"/g, '""')}"`,
     l.country || "",
+    l.state || "",
     l.county || "",
     l.city,
     l.phone || "",
@@ -36,6 +37,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [trades, setTrades] = useState([]);
   const [bootLoading, setBootLoading] = useState(true);
   const [selectedCountryId, setSelectedCountryId] = useState(null);
+  const [selectedStateId, setSelectedStateId] = useState(null);
   const [selectedCountyId, setSelectedCountyId] = useState(null);
   const [selectedCities, setSelectedCities] = useState([]);
   const [selectedTrades, setSelectedTrades] = useState([]);
@@ -46,11 +48,12 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [error, setError] = useState("");
   const [sortBy, setSortBy] = useState("reviews");
   const [filterPriority, setFilterPriority] = useState("all");
-  const [modalType, setModalType] = useState(null); // null | "country" | "county" | "city" | "trade"
+  const [modalType, setModalType] = useState(null); // null | "country" | "state" | "county" | "city" | "trade"
   const [modalValue, setModalValue] = useState("");
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [modalError, setModalError] = useState("");
   const [freeCountry, setFreeCountry] = useState("");
+  const [freeState, setFreeState] = useState("");
   const [freeCounty, setFreeCounty] = useState("");
   const [freeCity, setFreeCity] = useState("");
   const [freeTrade, setFreeTrade] = useState("");
@@ -69,7 +72,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         setTrades(tradesData.trades || []);
         if (cs.length > 0) {
           setSelectedCountryId(cs[0].id);
-          if (cs[0].counties.length > 0) setSelectedCountyId(cs[0].counties[0].id);
+          const firstState = cs[0].states[0];
+          if (firstState) {
+            setSelectedStateId(firstState.id);
+            if (firstState.counties.length > 0) setSelectedCountyId(firstState.counties[0].id);
+          }
         }
       })
       .catch(err => console.error("Failed to load countries/trades:", err))
@@ -77,8 +84,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   }, []);
 
   const selectedCountry = countries.find(c => c.id === selectedCountryId) || null;
-  const counties = selectedCountry ? selectedCountry.counties : [];
+  const states = selectedCountry ? selectedCountry.states : [];
   const countryName = selectedCountry ? selectedCountry.name : "";
+  const selectedState = states.find(s => s.id === selectedStateId) || null;
+  const counties = selectedState ? selectedState.counties : [];
+  const stateName = selectedState ? selectedState.name : "";
   const selectedCounty = counties.find(c => c.id === selectedCountyId) || null;
   const cities = selectedCounty ? selectedCounty.cities : [];
   const countyName = selectedCounty ? selectedCounty.name : "";
@@ -129,20 +139,45 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         if (!res.ok) throw new Error(data.error || "Failed to add country");
         setCountries(prev => [...prev, data.country].sort((a, b) => a.name.localeCompare(b.name)));
         setSelectedCountryId(data.country.id);
+        setSelectedStateId(null);
         setSelectedCountyId(null);
         setSelectedCities([]);
-      } else if (modalType === "county") {
+      } else if (modalType === "state") {
         if (!selectedCountryId) throw new Error("Select a country first");
-        const res = await fetch(`${API_BASE_URL}/api/counties`, {
+        const res = await fetch(`${API_BASE_URL}/api/states`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name, countryId: selectedCountryId }),
         });
         const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to add state");
+        setCountries(prev => prev.map(country =>
+          country.id === selectedCountryId
+            ? { ...country, states: [...country.states, data.state].sort((a, b) => a.name.localeCompare(b.name)) }
+            : country
+        ));
+        setSelectedStateId(data.state.id);
+        setSelectedCountyId(null);
+        setSelectedCities([]);
+      } else if (modalType === "county") {
+        if (!selectedStateId) throw new Error("Select a state first");
+        const res = await fetch(`${API_BASE_URL}/api/counties`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, stateId: selectedStateId }),
+        });
+        const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to add county");
         setCountries(prev => prev.map(country =>
           country.id === selectedCountryId
-            ? { ...country, counties: [...country.counties, data.county].sort((a, b) => a.name.localeCompare(b.name)) }
+            ? {
+                ...country,
+                states: country.states.map(s =>
+                  s.id === selectedStateId
+                    ? { ...s, counties: [...s.counties, data.county].sort((a, b) => a.name.localeCompare(b.name)) }
+                    : s
+                ),
+              }
             : country
         ));
         setSelectedCountyId(data.county.id);
@@ -160,10 +195,17 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           country.id === selectedCountryId
             ? {
                 ...country,
-                counties: country.counties.map(c =>
-                  c.id === selectedCountyId
-                    ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
-                    : c
+                states: country.states.map(s =>
+                  s.id === selectedStateId
+                    ? {
+                        ...s,
+                        counties: s.counties.map(c =>
+                          c.id === selectedCountyId
+                            ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
+                            : c
+                        ),
+                      }
+                    : s
                 ),
               }
             : country
@@ -190,10 +232,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const trade = freeTrade.trim();
     const city = freeCity.trim();
     const county = freeCounty.trim();
+    const state = freeState.trim();
     const country = freeCountry.trim();
 
     if (!trade || !city) {
-      setFreeError("Trade and city are required — county and country are optional.");
+      setFreeError("Trade and city are required — state, county, and country are optional.");
       return;
     }
 
@@ -204,7 +247,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       const response = await fetch(`${API_BASE_URL}/api/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trade, city, county, country }),
+        body: JSON.stringify({ trade, city, county, state, country }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
@@ -223,6 +266,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             address: b.address || "",
             city: b.city || city,
             county: b.county || county || null,
+            state: b.state || state || null,
             country: b.country || country || null,
             phone: b.phone || null,
             rating: parseFloat(b.rating) || 0,
@@ -236,6 +280,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
 
       setScraped(true);
       setFreeCountry("");
+      setFreeState("");
       setFreeCounty("");
       setFreeCity("");
       setFreeTrade("");
@@ -260,7 +305,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const queries = [];
     for (const trade of selectedTrades) {
       for (const city of selectedCities) {
-        queries.push({ trade, city, county: countyName, country: countryName });
+        queries.push({ trade, city, county: countyName, state: stateName, country: countryName });
       }
     }
 
@@ -269,7 +314,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     const seen = new Set();
     const allLeads = [];
 
-    for (const { trade, city, county: queryCounty, country: queryCountry } of queries) {
+    for (const { trade, city, county: queryCounty, state: queryState, country: queryCountry } of queries) {
       if (stopRef.current) break;
       setProgress(p => ({ ...p, current: `${trade} in ${city}...` }));
 
@@ -277,7 +322,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         const response = await fetch(`${API_BASE_URL}/api/search`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trade, city, county: queryCounty, country: queryCountry }),
+          body: JSON.stringify({ trade, city, county: queryCounty, state: queryState, country: queryCountry }),
         });
 
         if (!response.ok) {
@@ -297,6 +342,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             address: b.address || "",
             city: b.city || city,
             county: b.county || queryCounty || null,
+            state: b.state || queryState || null,
             country: b.country || queryCountry || null,
             phone: b.phone || null,
             rating: parseFloat(b.rating) || 0,
@@ -321,7 +367,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(false);
     setScraped(true);
     stopRef.current = false;
-  }, [selectedCities, selectedTrades, countyName, countryName, setLeads, setScraped]);
+  }, [selectedCities, selectedTrades, countyName, stateName, countryName, setLeads, setScraped]);
 
   const stopScrape = () => {
     stopRef.current = true;
@@ -375,7 +421,9 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               const id = Number(e.target.value);
               setSelectedCountryId(id);
               const country = countries.find(c => c.id === id);
-              setSelectedCountyId(country && country.counties.length > 0 ? country.counties[0].id : null);
+              const firstState = country && country.states.length > 0 ? country.states[0] : null;
+              setSelectedStateId(firstState ? firstState.id : null);
+              setSelectedCountyId(firstState && firstState.counties.length > 0 ? firstState.counties[0].id : null);
               setSelectedCities([]);
             }}
             style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
@@ -384,11 +432,32 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           </select>
         </div>
 
+        {/* State */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>State in {countryName || "—"}</label>
+            <button onClick={() => openModal("state")} disabled={!selectedCountryId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedCountryId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add State</button>
+          </div>
+          <select
+            value={selectedStateId ?? ""}
+            onChange={e => {
+              const id = Number(e.target.value);
+              setSelectedStateId(id);
+              const state = states.find(s => s.id === id);
+              setSelectedCountyId(state && state.counties.length > 0 ? state.counties[0].id : null);
+              setSelectedCities([]);
+            }}
+            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
+          >
+            {states.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+
         {/* County */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County in {countryName || "—"}</label>
-            <button onClick={() => openModal("county")} disabled={!selectedCountryId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedCountryId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add County</button>
+            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County in {stateName || "—"}</label>
+            <button onClick={() => openModal("county")} disabled={!selectedStateId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedStateId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add County</button>
           </div>
           <select
             value={selectedCountyId ?? ""}
@@ -571,7 +640,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           Freeform Search
         </label>
         <div style={{ fontSize: 12, color: SLATE, marginBottom: 12 }}>
-          Search any country, county, city, and trade directly — no need to add them to the lists above first. Results get added to your leads just like a regular scrape.
+          Search any country, state, county, city, and trade directly — no need to add them to the lists above first. Results get added to your leads just like a regular scrape.
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
           <input
@@ -579,6 +648,13 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             onChange={e => setFreeCountry(e.target.value)}
             onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
             placeholder="Country (optional)"
+            style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
+          />
+          <input
+            value={freeState}
+            onChange={e => setFreeState(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && runFreeformSearch()}
+            placeholder="State (optional)"
             style={{ flex: 1, minWidth: 160, padding: "9px 12px", border: "1.5px solid #CBD5E0", borderRadius: 8, fontSize: 13 }}
           />
           <input
@@ -709,7 +785,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Ready to scrape</div>
-          <div style={{ fontSize: 13 }}>Select a country and county, pick your cities and trades, then hit Run Scrape.</div>
+          <div style={{ fontSize: 13 }}>Select a country, state, and county, pick your cities and trades, then hit Run Scrape.</div>
         </div>
       )}
 
@@ -725,7 +801,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           >
             <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 4 }}>
               {modalType === "country" && "Add Country"}
-              {modalType === "county" && `Add County to ${countryName}`}
+              {modalType === "state" && `Add State to ${countryName}`}
+              {modalType === "county" && `Add County to ${stateName}`}
               {modalType === "city" && `Add City to ${countyName}`}
               {modalType === "trade" && "Add Trade"}
             </div>
@@ -739,6 +816,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               onKeyDown={e => e.key === "Enter" && submitModal()}
               placeholder={
                 modalType === "country" ? "e.g. Canada" :
+                modalType === "state" ? "e.g. Texas" :
                 modalType === "county" ? "e.g. Ventura County" :
                 modalType === "city" ? "e.g. Ventura" : "e.g. Landscaper"
               }

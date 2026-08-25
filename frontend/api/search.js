@@ -16,13 +16,14 @@ function formatHours(openingHours) {
   return [];
 }
 
-function toLead(place, trade, fallbackCity, county, country) {
+function toLead(place, trade, fallbackCity, county, state, country) {
   return {
     trade,
     name: place.title || "",
     address: place.address || "",
     city: fallbackCity,
     county: county || null,
+    state: state || null,
     country: country || null,
     phone: place.phoneNumber || null,
     rating: place.rating || 0,
@@ -41,17 +42,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: "SERPER_API_KEY is not configured on the server" });
   }
 
-  const { trade, city, county, country } = req.body || {};
+  const { trade, city, county, state, country } = req.body || {};
   const tradeTrimmed = (trade || "").trim();
   const cityTrimmed = (city || "").trim();
   const countyTrimmed = (county || "").trim();
+  const stateTrimmed = (state || "").trim();
   const countryTrimmed = (country || "").trim();
 
   if (!tradeTrimmed || !cityTrimmed) {
     return res.status(400).json({ error: "Both 'trade' and 'city' are required" });
   }
 
-  const query = [tradeTrimmed, cityTrimmed, countyTrimmed, countryTrimmed]
+  const query = [tradeTrimmed, cityTrimmed, countyTrimmed, stateTrimmed, countryTrimmed]
     .filter(Boolean)
     .join(" ");
 
@@ -76,7 +78,7 @@ export default async function handler(req, res) {
   const places = data.places || [];
   const businesses = places
     .filter((place) => place.title)
-    .map((place) => toLead(place, tradeTrimmed, cityTrimmed, countyTrimmed, countryTrimmed));
+    .map((place) => toLead(place, tradeTrimmed, cityTrimmed, countyTrimmed, stateTrimmed, countryTrimmed));
 
   let supabaseError = null;
   if (businesses.length > 0) {

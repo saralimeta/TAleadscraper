@@ -28,6 +28,9 @@ alter table leads enable row level security;
 alter table leads add column if not exists county text;
 alter table leads add column if not exists country text;
 
+-- State was added later, between country and county.
+alter table leads add column if not exists state text;
+
 alter table leads drop constraint if exists leads_name_city_trade_key;
 alter table leads drop constraint if exists leads_name_city_country_trade_key;
 alter table leads add constraint leads_name_city_country_trade_key unique (name, city, country, trade);
@@ -57,27 +60,48 @@ insert into countries (name) values ('United States')
 on conflict (name) do nothing;
 
 
+-- States sit between countries and counties (Country -> State -> County
+-- -> City). Added after the app had already been California-only for a
+-- while, so counties are backfilled onto a 'California' state below.
+
+create table if not exists states (
+  id bigint generated always as identity primary key,
+  name text not null,
+  country_id bigint not null references countries (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (name, country_id)
+);
+
+alter table states enable row level security;
+
+insert into states (name, country_id)
+select 'California', id from countries where name = 'United States'
+on conflict (name, country_id) do nothing;
+
 -- Counties, cities, and trades are user-extensible: anyone using the
 -- app can add new ones (via /api/counties, /api/cities, /api/trades),
 -- and they become available to everyone since they live here rather
--- than in hardcoded frontend arrays. Counties belong to a country, so
--- the same county/region name can exist in different countries.
+-- than in hardcoded frontend arrays. Counties belong to a state, so
+-- the same county/region name can exist in different states.
 
 create table if not exists counties (
   id bigint generated always as identity primary key,
   name text not null,
-  country_id bigint references countries (id) on delete cascade,
+  state_id bigint references states (id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
 -- Defensive migration for databases that ran an older version of this
--- file, where counties didn't have country_id yet.
-alter table counties add column if not exists country_id bigint references countries (id) on delete cascade;
-update counties set country_id = (select id from countries where name = 'United States') where country_id is null;
-alter table counties alter column country_id set not null;
+-- file, where counties hung directly off country_id instead of state_id.
+alter table counties add column if not exists state_id bigint references states (id) on delete cascade;
+update counties set state_id = (select id from states where name = 'California')
+where state_id is null;
+alter table counties alter column state_id set not null;
+alter table counties drop column if exists country_id;
 alter table counties drop constraint if exists counties_name_key;
 alter table counties drop constraint if exists counties_name_country_id_key;
-alter table counties add constraint counties_name_country_id_key unique (name, country_id);
+alter table counties drop constraint if exists counties_name_state_id_key;
+alter table counties add constraint counties_name_state_id_key unique (name, state_id);
 
 create table if not exists cities (
   id bigint generated always as identity primary key,
@@ -99,14 +123,14 @@ alter table trades enable row level security;
 
 -- Seed with the original hardcoded lists so the app doesn't start empty.
 
-insert into counties (name, country_id)
-select v.county, (select id from countries where name = 'United States')
+insert into counties (name, state_id)
+select v.county, (select id from states where name = 'California')
 from (values
   ('Contra Costa County'), ('Alameda County'), ('San Francisco County'),
   ('San Mateo County'), ('Santa Clara County'), ('Marin County'),
   ('Sonoma County'), ('Sacramento County'), ('Los Angeles County'), ('Orange County')
 ) as v(county)
-on conflict (name, country_id) do nothing;
+on conflict (name, state_id) do nothing;
 
 insert into cities (name, county_id)
 select v.city, c.id
