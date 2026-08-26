@@ -292,8 +292,12 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   };
 
   const scrape = useCallback(async () => {
-    if (!selectedCities.length || !selectedTrades.length) {
-      setError("Select at least one city and one trade.");
+    if (!selectedTrades.length) {
+      setError("Select at least one trade.");
+      return;
+    }
+    if (!countyName) {
+      setError("Select a county.");
       return;
     }
     setError("");
@@ -302,9 +306,12 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(true);
     stopRef.current = false;
 
+    // Cities are optional — with none selected, run one query per trade
+    // scoped to the county/state/country instead of a specific city.
+    const locations = selectedCities.length > 0 ? selectedCities : [null];
     const queries = [];
     for (const trade of selectedTrades) {
-      for (const city of selectedCities) {
+      for (const city of locations) {
         queries.push({ trade, city, county: countyName, state: stateName, country: countryName });
       }
     }
@@ -316,7 +323,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
 
     for (const { trade, city, county: queryCounty, state: queryState, country: queryCountry } of queries) {
       if (stopRef.current) break;
-      setProgress(p => ({ ...p, current: `${trade} in ${city}...` }));
+      setProgress(p => ({ ...p, current: `${trade} in ${city || queryCounty}...` }));
 
       try {
         const response = await fetch(`${API_BASE_URL}/api/search`, {
@@ -334,13 +341,14 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         const businesses = Array.isArray(data.businesses) ? data.businesses : [];
 
         for (const b of businesses) {
-          if (!b.name || seen.has(`${b.name}-${b.city}`)) continue;
-          seen.add(`${b.name}-${b.city}`);
+          const leadCity = b.city || city || queryCounty;
+          if (!b.name || seen.has(`${b.name}-${leadCity}`)) continue;
+          seen.add(`${b.name}-${leadCity}`);
           allLeads.push({
             trade,
             name: b.name || "",
             address: b.address || "",
-            city: b.city || city,
+            city: leadCity,
             county: b.county || queryCounty || null,
             state: b.state || queryState || null,
             country: b.country || queryCountry || null,
@@ -472,7 +480,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Cities in {countyName || "—"} <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
+              Cities in {countyName || "—"} (optional) <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <button onClick={selectAllCities} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>All</button>
@@ -498,6 +506,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               </button>
             ))}
           </div>
+          {selectedCities.length === 0 && (
+            <div style={{ fontSize: 12, color: SLATE, marginTop: 6 }}>
+              No cities selected — will search {countyName || "the county"} as a whole.
+            </div>
+          )}
         </div>
 
         {/* Trades */}
@@ -578,11 +591,14 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         </div>
 
         {/* Query count warning */}
-        {selectedCities.length > 0 && selectedTrades.length > 0 && (
-          <div style={{ padding: "10px 14px", background: GOLD_LIGHT, borderRadius: 8, fontSize: 13, color: NAVY, marginBottom: 16, border: `1px solid ${GOLD}` }}>
-            <strong>{selectedCities.length * selectedTrades.length} queries</strong> → est. <strong>{selectedCities.length * selectedTrades.length * 8}–{selectedCities.length * selectedTrades.length * 10} leads</strong> · ~{Math.ceil(selectedCities.length * selectedTrades.length * 0.4)} min to complete
-          </div>
-        )}
+        {selectedTrades.length > 0 && countyName && (() => {
+          const queryCount = Math.max(selectedCities.length, 1) * selectedTrades.length;
+          return (
+            <div style={{ padding: "10px 14px", background: GOLD_LIGHT, borderRadius: 8, fontSize: 13, color: NAVY, marginBottom: 16, border: `1px solid ${GOLD}` }}>
+              <strong>{queryCount} queries</strong> → est. <strong>{queryCount * 8}–{queryCount * 10} leads</strong> · ~{Math.ceil(queryCount * 0.4)} min to complete
+            </div>
+          );
+        })()}
 
         {error && (
           <div style={{ padding: "10px 14px", background: "#FFF5F5", borderRadius: 8, fontSize: 13, color: "#C53030", marginBottom: 16, border: "1px solid #FEB2B2" }}>
@@ -785,7 +801,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Ready to scrape</div>
-          <div style={{ fontSize: 13 }}>Select a country, state, and county, pick your cities and trades, then hit Run Scrape.</div>
+          <div style={{ fontSize: 13 }}>Select a country, state, and county, pick your trades (cities optional), then hit Run Scrape.</div>
         </div>
       )}
 

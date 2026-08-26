@@ -49,8 +49,13 @@ export default async function handler(req, res) {
   const stateTrimmed = (state || "").trim();
   const countryTrimmed = (country || "").trim();
 
-  if (!tradeTrimmed || !cityTrimmed) {
-    return res.status(400).json({ error: "Both 'trade' and 'city' are required" });
+  // City is optional — a county/state/country still gives Serper a usable
+  // location, and leads.city (not-null) falls back to the most specific
+  // location term we have.
+  const fallbackCity = cityTrimmed || countyTrimmed || stateTrimmed || countryTrimmed;
+
+  if (!tradeTrimmed || !fallbackCity) {
+    return res.status(400).json({ error: "'trade' and at least one of city/county/state/country are required" });
   }
 
   const query = [tradeTrimmed, cityTrimmed, countyTrimmed, stateTrimmed, countryTrimmed]
@@ -78,7 +83,7 @@ export default async function handler(req, res) {
   const places = data.places || [];
   const businesses = places
     .filter((place) => place.title)
-    .map((place) => toLead(place, tradeTrimmed, cityTrimmed, countyTrimmed, stateTrimmed, countryTrimmed));
+    .map((place) => toLead(place, tradeTrimmed, fallbackCity, countyTrimmed, stateTrimmed, countryTrimmed));
 
   let supabaseError = null;
   if (businesses.length > 0) {
