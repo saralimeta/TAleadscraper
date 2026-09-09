@@ -7,6 +7,23 @@ import { supabase } from "./_supabase.js";
 const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const SERPER_MAPS_URL = "https://google.serper.dev/maps";
 
+// Serper /maps passes through the Google Maps business category as `type`
+// (string) and usually `types` (array). Trade-school searches otherwise pull
+// in plumbing companies, unions, staffing agencies, etc. that merely mention
+// "trade school" — so we keep only places whose category reads as an
+// educational institution, and explicitly drop look-alikes.
+const EDU_CATEGORY = /\b(school|college|univers|academy|institut|training|vocational|education|apprentic|tuition)/i;
+const NOT_EDU_CATEGORY = /\b(association|non[- ]?profit|nonprofit|foundation|agency|staffing|recruit|consultant|contractor|union|chamber of commerce|corporate office|manufacturer|supply|supplier|store)\b/i;
+
+function isTradeSchool(place) {
+  const cats = [place.type, ...(Array.isArray(place.types) ? place.types : [])]
+    .filter(Boolean)
+    .join(" ");
+  if (!cats) return false; // no category from Serper -> can't vouch for it, drop
+  if (NOT_EDU_CATEGORY.test(cats)) return false;
+  return EDU_CATEGORY.test(cats);
+}
+
 function formatHours(openingHours) {
   if (!openingHours) return [];
   if (Array.isArray(openingHours)) return openingHours.map(String);
@@ -82,7 +99,7 @@ export default async function handler(req, res) {
 
   const places = data.places || [];
   const businesses = places
-    .filter((place) => place.title)
+    .filter((place) => place.title && isTradeSchool(place))
     .map((place) => toLead(place, tradeTrimmed, fallbackCity, countyTrimmed, stateTrimmed, countryTrimmed));
 
   let supabaseError = null;

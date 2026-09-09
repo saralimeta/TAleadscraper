@@ -8,6 +8,7 @@ missing instead of silently hitting Serper with an empty key.
 """
 
 import os
+import re
 
 import requests
 from dotenv import load_dotenv
@@ -19,6 +20,31 @@ load_dotenv()
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY")
 SERPER_MAPS_URL = "https://google.serper.dev/maps"
 REQUEST_TIMEOUT_SECONDS = 15
+
+# Serper /maps passes through the Google Maps business category as "type"
+# (string) and usually "types" (list). Trade-school searches otherwise pull in
+# plumbing companies, unions, staffing agencies, etc. that merely mention
+# "trade school" — so we keep only places whose category reads as an
+# educational institution, and explicitly drop look-alikes.
+_EDU_CATEGORY = re.compile(
+    r"\b(school|college|univers|academy|institut|training|vocational|education|apprentic|tuition)",
+    re.IGNORECASE,
+)
+_NOT_EDU_CATEGORY = re.compile(
+    r"\b(association|non[- ]?profit|nonprofit|foundation|agency|staffing|recruit|consultant|"
+    r"contractor|union|chamber of commerce|corporate office|manufacturer|supply|supplier|store)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_trade_school(place):
+    types = place.get("types") if isinstance(place.get("types"), list) else []
+    cats = " ".join(str(c) for c in ([place.get("type")] + types) if c)
+    if not cats:
+        return False  # no category from Serper -> can't vouch for it, drop
+    if _NOT_EDU_CATEGORY.search(cats):
+        return False
+    return bool(_EDU_CATEGORY.search(cats))
 
 app = Flask(__name__)
 CORS(app)
@@ -83,7 +109,11 @@ def search():
 
     data = response.json()
     places = data.get("places") or []
-    businesses = [_to_lead(place, city) for place in places if place.get("title")]
+    businesses = [
+        _to_lead(place, city)
+        for place in places
+        if place.get("title") and _is_trade_school(place)
+    ]
 
     return jsonify({"businesses": businesses})
 
