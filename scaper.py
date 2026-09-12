@@ -24,12 +24,12 @@ REQUEST_TIMEOUT_SECONDS = 15
 # Serper /maps passes through the Google Maps business category as "type"
 # (string) and usually "types" (list).
 #
-# Only school searches get category-filtered. A trade like "HVAC" or "Plumber"
-# is looking for contractors, and every contractor result would be dropped by
-# an education filter — so we apply it only when the trade term itself asks
-# for a school.
+# Only "trade school" / "school of trades" searches get category-filtered.
+# A trade like "HVAC" or "Plumber" is looking for contractors, and every
+# contractor result would be dropped by an education filter — so we apply
+# it only when the trade term itself is one of these two phrasings.
 _SCHOOL_SEARCH = re.compile(
-    r"\b(school|training|academy|institute|college|university|apprentice|vocational|education)",
+    r"\btrade\s+schools?\b|\bschools?\s+of\s+trades?\b",
     re.IGNORECASE,
 )
 

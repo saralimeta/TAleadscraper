@@ -10,11 +10,11 @@ const SERPER_MAPS_URL = "https://google.serper.dev/maps";
 // Serper /maps passes through the Google Maps business category as `type`
 // (string) and usually `types` (array).
 //
-// Only school searches get category-filtered. A trade like "HVAC" or "Plumber"
-// is looking for contractors, and every contractor result would be dropped by
-// an education filter — so we apply it only when the trade term itself asks
-// for a school.
-const SCHOOL_SEARCH = /\b(school|training|academy|institute|college|university|apprentice|vocational|education)/i;
+// Only "trade school" / "school of trades" searches get category-filtered.
+// A trade like "HVAC" or "Plumber" is looking for contractors, and every
+// contractor result would be dropped by an education filter — so we apply
+// it only when the trade term itself is one of these two phrasings.
+const SCHOOL_SEARCH = /\btrade\s+schools?\b|\bschools?\s+of\s+trades?\b/i;
 
 // Tested per category, not against all of them joined: a real beauty school is
 // often also a "Beauty supply store", and vetoing on the combined string would
