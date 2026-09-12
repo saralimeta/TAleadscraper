@@ -38,8 +38,10 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [bootLoading, setBootLoading] = useState(true);
   const [selectedCountryId, setSelectedCountryId] = useState(null);
   const [selectedStateId, setSelectedStateId] = useState(null);
-  const [selectedCountyId, setSelectedCountyId] = useState(null);
-  const [selectedCities, setSelectedCities] = useState([]);
+  // Multiple counties can be scraped in one run — each gets its own query
+  // (or one query per city within it, if cities are picked for that county).
+  const [selectedCountyIds, setSelectedCountyIds] = useState([]);
+  const [selectedCitiesByCounty, setSelectedCitiesByCounty] = useState({}); // { [countyId]: string[] }
   const [selectedTrades, setSelectedTrades] = useState([]);
   const [minRating, setMinRating] = useState(0);
   const [minReviews, setMinReviews] = useState(0);
@@ -49,6 +51,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const [sortBy, setSortBy] = useState("reviews");
   const [filterPriority, setFilterPriority] = useState("all");
   const [modalType, setModalType] = useState(null); // null | "country" | "state" | "county" | "city" | "trade"
+  const [modalCountyId, setModalCountyId] = useState(null); // which county "+ Add City" was opened for
   const [modalValue, setModalValue] = useState("");
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [modalError, setModalError] = useState("");
@@ -75,7 +78,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           const firstState = cs[0].states[0];
           if (firstState) {
             setSelectedStateId(firstState.id);
-            if (firstState.counties.length > 0) setSelectedCountyId(firstState.counties[0].id);
+            setSelectedCountyIds(firstState.counties.length > 0 ? [firstState.counties[0].id] : []);
           }
         }
       })
@@ -89,14 +92,20 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
   const selectedState = states.find(s => s.id === selectedStateId) || null;
   const counties = selectedState ? selectedState.counties : [];
   const stateName = selectedState ? selectedState.name : "";
-  const selectedCounty = counties.find(c => c.id === selectedCountyId) || null;
-  const cities = selectedCounty ? selectedCounty.cities : [];
-  const countyName = selectedCounty ? selectedCounty.name : "";
+  const selectedCounties = counties.filter(c => selectedCountyIds.includes(c.id));
 
-  const toggleCity = (city) => {
-    setSelectedCities(prev =>
-      prev.includes(city) ? prev.filter(c => c !== city) : [...prev, city]
+  const toggleCounty = (countyId) => {
+    setSelectedCountyIds(prev =>
+      prev.includes(countyId) ? prev.filter(id => id !== countyId) : [...prev, countyId]
     );
+  };
+
+  const toggleCity = (countyId, city) => {
+    setSelectedCitiesByCounty(prev => {
+      const current = prev[countyId] || [];
+      const next = current.includes(city) ? current.filter(c => c !== city) : [...current, city];
+      return { ...prev, [countyId]: next };
+    });
   };
 
   const toggleTrade = (trade) => {
@@ -105,21 +114,27 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     );
   };
 
-  const selectAllCities = () => setSelectedCities(cities.map(c => c.name));
-  const clearCities = () => setSelectedCities([]);
+  const selectAllCounties = () => setSelectedCountyIds(counties.map(c => c.id));
+  const clearCounties = () => { setSelectedCountyIds([]); setSelectedCitiesByCounty({}); };
+  const selectAllCitiesForCounty = (countyId, cityNames) =>
+    setSelectedCitiesByCounty(prev => ({ ...prev, [countyId]: cityNames }));
+  const clearCitiesForCounty = (countyId) =>
+    setSelectedCitiesByCounty(prev => ({ ...prev, [countyId]: [] }));
   const selectAllTrades = () => setSelectedTrades(trades.map(t => t.name));
   const clearTrades = () => setSelectedTrades([]);
 
-  const openModal = (type) => {
+  const openModal = (type, countyId = null) => {
     setModalType(type);
     setModalValue("");
     setModalError("");
+    setModalCountyId(countyId);
   };
 
   const closeModal = () => {
     setModalType(null);
     setModalValue("");
     setModalError("");
+    setModalCountyId(null);
   };
 
   const submitModal = async () => {
@@ -140,8 +155,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         setCountries(prev => [...prev, data.country].sort((a, b) => a.name.localeCompare(b.name)));
         setSelectedCountryId(data.country.id);
         setSelectedStateId(null);
-        setSelectedCountyId(null);
-        setSelectedCities([]);
+        setSelectedCountyIds([]);
+        setSelectedCitiesByCounty({});
       } else if (modalType === "state") {
         if (!selectedCountryId) throw new Error("Select a country first");
         const res = await fetch(`${API_BASE_URL}/api/states`, {
@@ -157,8 +172,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
             : country
         ));
         setSelectedStateId(data.state.id);
-        setSelectedCountyId(null);
-        setSelectedCities([]);
+        setSelectedCountyIds([]);
+        setSelectedCitiesByCounty({});
       } else if (modalType === "county") {
         if (!selectedStateId) throw new Error("Select a state first");
         const res = await fetch(`${API_BASE_URL}/api/counties`, {
@@ -180,14 +195,13 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               }
             : country
         ));
-        setSelectedCountyId(data.county.id);
-        setSelectedCities([]);
+        setSelectedCountyIds(prev => [...prev, data.county.id]);
       } else if (modalType === "city") {
-        if (!selectedCountyId) throw new Error("Select a county first");
+        if (!modalCountyId) throw new Error("Select a county first");
         const res = await fetch(`${API_BASE_URL}/api/cities`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, countyId: selectedCountyId }),
+          body: JSON.stringify({ name, countyId: modalCountyId }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to add city");
@@ -200,7 +214,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
                     ? {
                         ...s,
                         counties: s.counties.map(c =>
-                          c.id === selectedCountyId
+                          c.id === modalCountyId
                             ? { ...c, cities: [...c.cities, data.city].sort((a, b) => a.name.localeCompare(b.name)) }
                             : c
                         ),
@@ -296,8 +310,9 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
       setError("Select at least one trade.");
       return;
     }
-    if (!countyName) {
-      setError("Select a county.");
+    const activeCounties = counties.filter(c => selectedCountyIds.includes(c.id));
+    if (!activeCounties.length) {
+      setError("Select at least one county.");
       return;
     }
     setError("");
@@ -306,13 +321,17 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(true);
     stopRef.current = false;
 
-    // Cities are optional — with none selected, run one query per trade
-    // scoped to the county/state/country instead of a specific city.
-    const locations = selectedCities.length > 0 ? selectedCities : [null];
+    // Each selected county gets its own query per trade. Cities are optional
+    // — with none picked for a county, we run one query scoped to that
+    // county/state/country instead of a specific city.
     const queries = [];
     for (const trade of selectedTrades) {
-      for (const city of locations) {
-        queries.push({ trade, city, county: countyName, state: stateName, country: countryName });
+      for (const county of activeCounties) {
+        const countyCities = selectedCitiesByCounty[county.id] || [];
+        const locations = countyCities.length > 0 ? countyCities : [null];
+        for (const city of locations) {
+          queries.push({ trade, city, county: county.name, state: stateName, country: countryName });
+        }
       }
     }
 
@@ -342,8 +361,12 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
 
         for (const b of businesses) {
           const leadCity = b.city || city || queryCounty;
-          if (!b.name || seen.has(`${b.name}-${leadCity}`)) continue;
-          seen.add(`${b.name}-${leadCity}`);
+          // Key includes county — the same city name can exist in different
+          // counties, and now that a run can span multiple counties we don't
+          // want one to shadow the other.
+          const key = `${b.name}-${leadCity}-${queryCounty || ""}`;
+          if (!b.name || seen.has(key)) continue;
+          seen.add(key);
           allLeads.push({
             trade,
             name: b.name || "",
@@ -367,7 +390,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         await new Promise(r => setTimeout(r, 300));
 
       } catch (err) {
-        console.error("Query failed:", trade, city, err);
+        console.error("Query failed:", trade, city, queryCounty, err);
         setProgress(p => ({ ...p, done: p.done + 1 }));
       }
     }
@@ -375,7 +398,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
     setLoading(false);
     setScraped(true);
     stopRef.current = false;
-  }, [selectedCities, selectedTrades, countyName, stateName, countryName, setLeads, setScraped]);
+  }, [selectedCountyIds, selectedCitiesByCounty, selectedTrades, counties, stateName, countryName, setLeads, setScraped]);
 
   const stopScrape = () => {
     stopRef.current = true;
@@ -431,8 +454,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               const country = countries.find(c => c.id === id);
               const firstState = country && country.states.length > 0 ? country.states[0] : null;
               setSelectedStateId(firstState ? firstState.id : null);
-              setSelectedCountyId(firstState && firstState.counties.length > 0 ? firstState.counties[0].id : null);
-              setSelectedCities([]);
+              setSelectedCountyIds(firstState && firstState.counties.length > 0 ? [firstState.counties[0].id] : []);
+              setSelectedCitiesByCounty({});
             }}
             style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
           >
@@ -452,8 +475,8 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               const id = Number(e.target.value);
               setSelectedStateId(id);
               const state = states.find(s => s.id === id);
-              setSelectedCountyId(state && state.counties.length > 0 ? state.counties[0].id : null);
-              setSelectedCities([]);
+              setSelectedCountyIds(state && state.counties.length > 0 ? [state.counties[0].id] : []);
+              setSelectedCitiesByCounty({});
             }}
             style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
           >
@@ -461,56 +484,99 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
           </select>
         </div>
 
-        {/* County */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-            <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>County in {stateName || "—"}</label>
-            <button onClick={() => openModal("county")} disabled={!selectedStateId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedStateId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add County</button>
-          </div>
-          <select
-            value={selectedCountyId ?? ""}
-            onChange={e => { setSelectedCountyId(Number(e.target.value)); setSelectedCities([]); }}
-            style={{ width: "100%", padding: "10px 14px", border: `1.5px solid #CBD5E0`, borderRadius: 8, fontSize: 14, background: WHITE, color: NAVY, cursor: "pointer" }}
-          >
-            {counties.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
-
-        {/* Cities */}
+        {/* Counties */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase" }}>
-              Cities in {countyName || "—"} (optional) <span style={{ color: GOLD }}>({selectedCities.length} selected)</span>
+              Counties in {stateName || "—"} <span style={{ color: GOLD }}>({selectedCountyIds.length} selected)</span>
             </label>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <button onClick={selectAllCities} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>All</button>
+              <button onClick={selectAllCounties} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>All</button>
               <span style={{ color: "#CBD5E0" }}>|</span>
-              <button onClick={clearCities} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>Clear</button>
+              <button onClick={clearCounties} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Clear</button>
               <span style={{ color: "#CBD5E0" }}>|</span>
-              <button onClick={() => openModal("city")} disabled={!selectedCountyId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedCountyId ? "pointer" : "not-allowed", fontWeight: 600, padding: "2px 0" }}>+ Add City</button>
+              <button onClick={() => openModal("county")} disabled={!selectedStateId} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: selectedStateId ? "pointer" : "not-allowed", fontWeight: 600 }}>+ Add County</button>
             </div>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {cities.map(city => (
+            {counties.map(county => (
               <button
-                key={city.id}
-                onClick={() => toggleCity(city.name)}
+                key={county.id}
+                onClick={() => toggleCounty(county.id)}
                 style={{
                   padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
-                  background: selectedCities.includes(city.name) ? NAVY : WHITE,
-                  color: selectedCities.includes(city.name) ? WHITE : SLATE,
-                  border: `1.5px solid ${selectedCities.includes(city.name) ? NAVY : "#CBD5E0"}`,
+                  background: selectedCountyIds.includes(county.id) ? NAVY : WHITE,
+                  color: selectedCountyIds.includes(county.id) ? WHITE : SLATE,
+                  border: `1.5px solid ${selectedCountyIds.includes(county.id) ? NAVY : "#CBD5E0"}`,
                 }}
               >
-                {city.name}
+                {county.name}
               </button>
             ))}
           </div>
-          {selectedCities.length === 0 && (
+          {selectedCountyIds.length > 1 && (
             <div style={{ fontSize: 12, color: SLATE, marginTop: 6 }}>
-              No cities selected — will search {countyName || "the county"} as a whole.
+              {selectedCountyIds.length} counties selected — each runs as its own query per trade.
             </div>
           )}
+        </div>
+
+        {/* Cities (per selected county) */}
+        <div style={{ marginBottom: 20 }}>
+          <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: SLATE, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
+            Cities (optional)
+          </label>
+          {selectedCounties.length === 0 && (
+            <div style={{ fontSize: 12, color: SLATE }}>Select at least one county above to optionally narrow by city.</div>
+          )}
+          {selectedCounties.map((county, i) => {
+            const countyCities = county.cities || [];
+            const chosen = selectedCitiesByCounty[county.id] || [];
+            return (
+              <div
+                key={county.id}
+                style={{
+                  marginBottom: 12,
+                  paddingBottom: 12,
+                  borderBottom: i < selectedCounties.length - 1 ? "1px solid #EDF2F7" : "none",
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: NAVY }}>
+                    {county.name} <span style={{ color: GOLD, fontWeight: 600 }}>({chosen.length} selected)</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <button onClick={() => selectAllCitiesForCounty(county.id, countyCities.map(c => c.name))} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>All</button>
+                    <span style={{ color: "#CBD5E0" }}>|</span>
+                    <button onClick={() => clearCitiesForCounty(county.id)} style={{ fontSize: 11, color: SLATE, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>Clear</button>
+                    <span style={{ color: "#CBD5E0" }}>|</span>
+                    <button onClick={() => openModal("city", county.id)} style={{ fontSize: 11, color: GOLD, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "2px 0" }}>+ Add City</button>
+                  </div>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {countyCities.map(city => (
+                    <button
+                      key={city.id}
+                      onClick={() => toggleCity(county.id, city.name)}
+                      style={{
+                        padding: "5px 12px", borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
+                        background: chosen.includes(city.name) ? NAVY : WHITE,
+                        color: chosen.includes(city.name) ? WHITE : SLATE,
+                        border: `1.5px solid ${chosen.includes(city.name) ? NAVY : "#CBD5E0"}`,
+                      }}
+                    >
+                      {city.name}
+                    </button>
+                  ))}
+                </div>
+                {chosen.length === 0 && (
+                  <div style={{ fontSize: 12, color: SLATE, marginTop: 6 }}>
+                    No cities selected — will search {county.name} as a whole.
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Trades */}
@@ -591,8 +657,11 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         </div>
 
         {/* Query count warning */}
-        {selectedTrades.length > 0 && countyName && (() => {
-          const queryCount = Math.max(selectedCities.length, 1) * selectedTrades.length;
+        {selectedTrades.length > 0 && selectedCounties.length > 0 && (() => {
+          const queryCount = selectedCounties.reduce((sum, county) => {
+            const n = (selectedCitiesByCounty[county.id] || []).length;
+            return sum + Math.max(n, 1);
+          }, 0) * selectedTrades.length;
           return (
             <div style={{ padding: "10px 14px", background: GOLD_LIGHT, borderRadius: 8, fontSize: 13, color: NAVY, marginBottom: 16, border: `1px solid ${GOLD}` }}>
               <strong>{queryCount} queries</strong> → est. <strong>{queryCount * 8}–{queryCount * 10} leads</strong> · ~{Math.ceil(queryCount * 0.4)} min to complete
@@ -801,7 +870,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
         <div style={{ textAlign: "center", padding: "60px 20px", color: SLATE }}>
           <div style={{ fontSize: 40, marginBottom: 12 }}>🏗️</div>
           <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Ready to scrape</div>
-          <div style={{ fontSize: 13 }}>Select a country, state, and county, pick your trades (cities optional), then hit Run Scrape.</div>
+          <div style={{ fontSize: 13 }}>Select a country and state, pick one or more counties, pick your trades (cities optional), then hit Run Scrape.</div>
         </div>
       )}
 
@@ -819,7 +888,7 @@ export default function ScraperDashboard({ leads, setLeads, scraped, setScraped 
               {modalType === "country" && "Add Country"}
               {modalType === "state" && `Add State to ${countryName}`}
               {modalType === "county" && `Add County to ${stateName}`}
-              {modalType === "city" && `Add City to ${countyName}`}
+              {modalType === "city" && `Add City to ${counties.find(c => c.id === modalCountyId)?.name || ""}`}
               {modalType === "trade" && "Add Trade"}
             </div>
             <div style={{ fontSize: 12, color: SLATE, marginBottom: 14 }}>
