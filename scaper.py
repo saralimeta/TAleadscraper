@@ -22,29 +22,42 @@ SERPER_MAPS_URL = "https://google.serper.dev/maps"
 REQUEST_TIMEOUT_SECONDS = 15
 
 # Serper /maps passes through the Google Maps business category as "type"
-# (string) and usually "types" (list). Trade-school searches otherwise pull in
-# plumbing companies, unions, staffing agencies, etc. that merely mention
-# "trade school" — so we keep only places whose category reads as an
-# educational institution, and explicitly drop look-alikes.
-_EDU_CATEGORY = re.compile(
-    r"\b(school|college|univers|academy|institut|training|vocational|education|apprentic|tuition)",
+# (string) and usually "types" (list).
+#
+# Only school searches get category-filtered. A trade like "HVAC" or "Plumber"
+# is looking for contractors, and every contractor result would be dropped by
+# an education filter — so we apply it only when the trade term itself asks
+# for a school.
+_SCHOOL_SEARCH = re.compile(
+    r"\b(school|training|academy|institute|college|university|apprentice|vocational|education)",
     re.IGNORECASE,
 )
-_NOT_EDU_CATEGORY = re.compile(
-    r"\b(association|non[- ]?profit|nonprofit|foundation|agency|staffing|recruit|consultant|"
-    r"contractor|union|chamber of commerce|corporate office|manufacturer|supply|supplier|store)\b",
+
+# Tested per category, not against all of them joined: a real beauty school is
+# often also a "Beauty supply store", and vetoing on the combined string would
+# drop it. One clearly educational category is enough to keep a place.
+_IS_SCHOOL_CATEGORY = re.compile(
+    r"\b(school|college|univers|academy|institut|training|vocational|education|apprentic)",
+    re.IGNORECASE,
+)
+# Categories carrying an education word that still aren't a school.
+_NOT_SCHOOL_CATEGORY = re.compile(
+    r"\b(consultant|association|union|staffing|recruit|agency|supply|supplier|store)\b",
     re.IGNORECASE,
 )
 
 
-def _is_trade_school(place):
+def _is_school(place):
     types = place.get("types") if isinstance(place.get("types"), list) else []
-    cats = " ".join(str(c) for c in ([place.get("type")] + types) if c)
-    if not cats:
-        return False  # no category from Serper -> can't vouch for it, drop
-    if _NOT_EDU_CATEGORY.search(cats):
-        return False
-    return bool(_EDU_CATEGORY.search(cats))
+    categories = [c for c in ([place.get("type")] + types) if c]
+    if any(
+        not _NOT_SCHOOL_CATEGORY.search(str(c)) and _IS_SCHOOL_CATEGORY.search(str(c))
+        for c in categories
+    ):
+        return True
+    # Google's category is sometimes plain wrong ("HVAC Academy Orlando" is
+    # filed as an HVAC contractor), so fall back to the business name.
+    return bool(_SCHOOL_SEARCH.search(place.get("title") or ""))
 
 app = Flask(__name__)
 CORS(app)
@@ -108,11 +121,12 @@ def search():
         return jsonify({"error": f"Serper request failed: {exc}"}), 502
 
     data = response.json()
+    school_search = bool(_SCHOOL_SEARCH.search(trade))
     places = data.get("places") or []
     businesses = [
         _to_lead(place, city)
         for place in places
-        if place.get("title") and _is_trade_school(place)
+        if place.get("title") and (not school_search or _is_school(place))
     ]
 
     return jsonify({"businesses": businesses})

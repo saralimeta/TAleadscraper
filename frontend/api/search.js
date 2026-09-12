@@ -8,20 +8,29 @@ const SERPER_API_KEY = process.env.SERPER_API_KEY;
 const SERPER_MAPS_URL = "https://google.serper.dev/maps";
 
 // Serper /maps passes through the Google Maps business category as `type`
-// (string) and usually `types` (array). Trade-school searches otherwise pull
-// in plumbing companies, unions, staffing agencies, etc. that merely mention
-// "trade school" — so we keep only places whose category reads as an
-// educational institution, and explicitly drop look-alikes.
-const EDU_CATEGORY = /\b(school|college|univers|academy|institut|training|vocational|education|apprentic|tuition)/i;
-const NOT_EDU_CATEGORY = /\b(association|non[- ]?profit|nonprofit|foundation|agency|staffing|recruit|consultant|contractor|union|chamber of commerce|corporate office|manufacturer|supply|supplier|store)\b/i;
+// (string) and usually `types` (array).
+//
+// Only school searches get category-filtered. A trade like "HVAC" or "Plumber"
+// is looking for contractors, and every contractor result would be dropped by
+// an education filter — so we apply it only when the trade term itself asks
+// for a school.
+const SCHOOL_SEARCH = /\b(school|training|academy|institute|college|university|apprentice|vocational|education)/i;
 
-function isTradeSchool(place) {
-  const cats = [place.type, ...(Array.isArray(place.types) ? place.types : [])]
-    .filter(Boolean)
-    .join(" ");
-  if (!cats) return false; // no category from Serper -> can't vouch for it, drop
-  if (NOT_EDU_CATEGORY.test(cats)) return false;
-  return EDU_CATEGORY.test(cats);
+// Tested per category, not against all of them joined: a real beauty school is
+// often also a "Beauty supply store", and vetoing on the combined string would
+// drop it. One clearly educational category is enough to keep a place.
+const IS_SCHOOL_CATEGORY = /\b(school|college|univers|academy|institut|training|vocational|education|apprentic)/i;
+// Categories carrying an education word that still aren't a school.
+const NOT_SCHOOL_CATEGORY = /\b(consultant|association|union|staffing|recruit|agency|supply|supplier|store)\b/i;
+
+function isSchool(place) {
+  const categories = [place.type, ...(Array.isArray(place.types) ? place.types : [])].filter(Boolean);
+  if (categories.some((c) => !NOT_SCHOOL_CATEGORY.test(c) && IS_SCHOOL_CATEGORY.test(c))) {
+    return true;
+  }
+  // Google's category is sometimes plain wrong ("HVAC Academy Orlando" is
+  // filed as an HVAC contractor), so fall back to the business name.
+  return SCHOOL_SEARCH.test(place.title || "");
 }
 
 function formatHours(openingHours) {
@@ -97,9 +106,10 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: `Serper request failed: ${err.message}` });
   }
 
+  const schoolSearch = SCHOOL_SEARCH.test(tradeTrimmed);
   const places = data.places || [];
   const businesses = places
-    .filter((place) => place.title && isTradeSchool(place))
+    .filter((place) => place.title && (!schoolSearch || isSchool(place)))
     .map((place) => toLead(place, tradeTrimmed, fallbackCity, countyTrimmed, stateTrimmed, countryTrimmed));
 
   let supabaseError = null;
